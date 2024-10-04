@@ -1,0 +1,10 @@
+//
+// File created by:  xrun
+// Do not modify this file
+//
+firtb.sv
+../rtl/fir.sv
+-access
++rwc
+-top
+firtb

@@ -1,14 +1,21 @@
-sim:
-	xrun tb.sv \
-	../rtl/iir.sv \
-	-access +rwc \
-	-top tb
+TBNAME = $(tb).sv
 
-simg:
-	xrun tb.sv \
-	../rtl/iir.sv \
+all:
+	@echo "sim tb=<TBNAME>"
+	@echo "simgui tb=<TBNAME>"
+	@echo "example: sim tb=firtb"
+
+sim:
+	xrun $(TBNAME) \
+	../rtl/* \
 	-access +rwc \
-	-top tb \
+	-top $(tb)
+
+simgui:
+	xrun $(TBNAME).sv \
+	../rtl/* \
+	-access +rwc \
+	-top $(tb) \
 	+gui
 
 clean:
