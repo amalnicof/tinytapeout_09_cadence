@@ -1,2 +1,15 @@
 # VSCode
 .vscode
+
+# Genus
+genus.log*
+genus.cmd*
+.*.tstamp
+syn/fv/*
+syn/outputs/*
+syn/reports/*
+sim/outputs/*
+sim/xcelium.d/*
+xrun.history
+xrun.key
+xrun.log
