@@ -7,6 +7,13 @@ sim_i2s_controller: setup
 	-access +rwc \
 	-top tb_I2SController
 
+sim_spi_slave: setup
+	xrun tb_SPISlave.sv \
+	../rtl/SPISlave.sv \
+	-access +rwc \
+	-top tb_SPISlave
+
+
 sim:
 	xrun tb.sv \
 	../rtl/iir.sv \
