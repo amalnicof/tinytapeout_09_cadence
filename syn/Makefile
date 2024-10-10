@@ -16,6 +16,14 @@ syn_spi_slave:
 		VERILOG='../rtl/SPISlave.sv' \
 		genus -f genus_script.tcl -no_gui
 
+syn_config_store:
+	BASENAME=ConfigStore \
+		CLOCKPERIOD=31.25 \
+		TIMINGPATH=/opt/skywater/libraries/sky130_fd_sc_hd/latest/timing \
+		TIMINGLIB=sky130_fd_sc_hd__ss_n40C_1v76.lib \
+		VERILOG='../rtl/ConfigStore.sv' \
+		genus -f genus_script.tcl -no_gui
+
 syn:
 	BASENAME=iir \
 		CLOCKPERIOD=3 \

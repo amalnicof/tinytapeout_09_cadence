@@ -13,6 +13,12 @@ sim_spi_slave: setup
 	-access +rwc \
 	-top tb_SPISlave
 
+sim_config_store: setup
+	xrun tb_ConfigStore.sv \
+	../rtl/ConfigStore.sv \
+	-access +rwc \
+	-top tb_ConfigStore
+
 
 sim:
 	xrun tb.sv \
