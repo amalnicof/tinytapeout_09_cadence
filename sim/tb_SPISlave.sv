@@ -78,18 +78,20 @@ module tb_SPISlave ();
     reset = 0;
     WaitClock(4);
 
-    // Shift in 32 bits of random data
-    randomData = $urandom();
+    repeat (4) begin
+      // Shift in 32 bits of random data
+      randomData = $urandom();
 
-    cs = 0;
-    for (int i = 0; i < 32; i++) begin
+      cs = 0;
+      for (int i = 0; i < 32; i++) begin
+        @(negedge sclk);
+        mosi = randomData[31-i];
+      end
+
       @(negedge sclk);
-      mosi = randomData[31-i];
+      assert (shiftReg == randomData)
+      else $error("SPI output data incorrect, should be %h not %h", randomData, shiftReg);
     end
-
-    @(negedge sclk);
-    assert (shiftReg == randomData)
-    else $error("SPI output data incorrect, should be %h not %h", randomData, shiftReg);
 
     reset = 1;
     WaitClock(8);
