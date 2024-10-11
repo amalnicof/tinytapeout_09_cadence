@@ -8,18 +8,19 @@
  *
  * The supported sampling frequency can be configured using the `clockConfig` port. The equation
  * below can be used to calculate the sampling frequency.
+ * TODO EDIT
  * F_sclk = F_clk/((clockConfig+1)*2)
  * Fs = F_sclk/64
  *
- * Assuming a system clock of 32MHz, and a config width of 7 bits, the range of the sampling
- * frequency is 3937kHz to 500kHz. Though it is important to remember that the sampling frequency
+ * Assuming a system clock of 32MHz, and a config width of 6 bits, the range of the sampling
+ * frequency is 7936kHz to 500kHz. Though it is important to remember that the sampling frequency
  * range of the ADC and DAC ICs are 4kHz-100kHz
  */
 
 `timescale 1ns / 1ps
 
 module I2SController #(
-    parameter int ClockConfigWidth = 6,
+    parameter int ClockConfigWidth = 4,
     parameter int DataWidth = 12,  // Number of bits for ADC and DAC data
 
     localparam int SerialDataWidth = 24,  // Number of bits to and from the I2S2 port per sample
@@ -37,20 +38,21 @@ module I2SController #(
     input wire [ClockConfigWidth-1:0] clockConfig,
 
     // ADC data port
-    input wire [ScaleWidth-1:0] adcScaleRaw,
+    input wire [ScaleWidth-1:0] adcScale,
     output logic [DataWidth-1:0] adcData,
-    output logic adcValidPulse,
+    output logic adcDataValid,
 
     // DAC data port
-    input wire [ScaleWidth-1:0] dacScaleRaw,
-    input wire [ DataWidth-1:0] dacData,
+    input wire [ScaleWidth-1:0] dacScale,
+    input wire [DataWidth-1:0] dacData,
+    input wire dacDataValid,
 
     // I2S2 port
-    output wire  mclk,
+    output logic mclk,
     output logic sclk,
     output logic lrck,
-    input  wire  adcIn,
-    output logic dacOut
+    input  wire  adc,
+    output logic dac
 );
   typedef enum logic [1:0] {
     IDLE_S,
@@ -60,68 +62,69 @@ module I2SController #(
   } state_e;
 
   // Clock divider counters
-  logic [ClockConfigWidth-1:0] sclkClockCounter;
-  logic [LrckCounterWidth-1:0] lrClockCounter;
+  logic [ClockConfigWidth-1:0] mclkCounter;
+  logic sclkCounter;  // mclk div 4
+  logic [4:0] lrckCounter;  // sclk div 64
+
   logic [AdditionalShiftCounterWidth-1:0] additionalShiftCounter;
 
   // Pulse signals
-  wire sclkTransitionPulse;  // Edge transition pulse for sclk
-  wire lrckTransitionPulse;  // Edge transition pulse for lrck
-  wire samplePulse;  // Pulse to sample adcIn, negative edge of sclk
-  wire dacTransitionPulse;  // Pulse to change dacOut, positive edge of sclk
+  wire mclkTransition = mclkCounter == clockConfig;
+  wire sclkTransition = mclkTransition && mclk && sclkCounter == 1'h1;
+  wire lrckTransition = sclkTransition && sclk && lrckCounter == 5'h1f;
 
+  wire samplePulse = sclkTransition && !sclk;  // Pulse to sample adc, negedge of sclk
+  wire dacTransition = sclkTransition && !sclk;  // Pulse to change dac, posedge of sclk
+
+  // external input synchronizer
   logic [1:0] adcSynchronizer;
-  wire adcSynced;
+  wire adcQ = adcSynchronizer[1];
 
   // State machine signals
   state_e currentState;
   state_e nextState;
 
-  wire [ScaleWidth-1:0] adcScale;
-  wire [ScaleWidth-1:0] dacScale;
+  wire [ScaleWidth-1:0] adcScaleBounded = adcScale > SerialDataWidth + DataWidth ? 0 : adcScale;
+  wire [ScaleWidth-1:0] dacScaleBounded = dacScale > SerialDataWidth + DataWidth ? 0 : dacScale;
 
-  logic [DataWidth-1:0] intDacData;  // Registered data for dac output
-  wire dacDataIndexValid;  // Data should be sourced from intDacData
-
-  assign mclk = clk;
-  assign sclkTransitionPulse = sclkClockCounter == clockConfig;
-  assign lrckTransitionPulse = lrClockCounter == LrckCounterMax;
-  assign samplePulse = sclkTransitionPulse && sclk;
-  assign dacTransitionPulse = sclkTransitionPulse && !sclk;
-
-  assign adcSynced = adcSynchronizer[1];
-
-  assign adcScale = adcScaleRaw > SerialDataWidth + DataWidth ? 0 : adcScaleRaw;
-  assign dacScale = dacScaleRaw > SerialDataWidth + DataWidth ? 0 : dacScaleRaw;
-  assign dacDataIndexValid =
-    signed'((LrckCounterWidth+1)'(lrClockCounter))
-      > signed'(SerialDataWidth) - 1 - signed'((ScaleWidth+1)'(dacScale))
-    && lrClockCounter < SerialDataWidth + DataWidth - dacScale;
+  logic [DataWidth-1:0] dacDataQ;  // Registered data for dac output
+  // Data should be sourced from dacDataQ when shifting
+  wire dacDataIndexValid =
+    signed'((LrckCounterWidth + 1)'(lrckCounter))
+      > signed'(SerialDataWidth) - signed'((ScaleWidth + 1)'(dacScaleBounded))
+    && lrckCounter < SerialDataWidth + DataWidth + 1 - dacScaleBounded;
 
   // Generate clocks and pulses
   always_ff @(posedge clk) begin : ClockGeneration
     if (reset) begin
-      sclkClockCounter <= 0;
-      lrClockCounter <= 0;
-
-      sclk <= 0;
-      lrck <= 0;
+      mclk <= 1'b0;
+      sclk <= 1'b0;
+      lrck <= 1'b0;
+      mclkCounter <= ClockConfigWidth'(0);
+      sclkCounter <= 2'b0;
+      lrckCounter <= 6'b0;
     end else begin
-      if (sclkTransitionPulse) begin
-        sclkClockCounter <= 0;
-        sclk <= ~sclk;
-
-        if (!sclk) begin
-          // On the posedge of sclk
-          if (lrckTransitionPulse) begin
-            lrClockCounter <= 0;
-            lrck <= ~lrck;
-          end else begin
-            lrClockCounter <= lrClockCounter + 1;
-          end
-        end
+      if (mclkTransition) begin
+        mclkCounter <= ClockConfigWidth'(0);
+        mclk <= ~mclk;
       end else begin
-        sclkClockCounter <= sclkClockCounter + 1;
+        mclkCounter <= mclkCounter + 1;
+      end
+
+      if (mclkTransition && mclk) begin
+        // Count on negedge of mclk
+        sclkCounter <= sclkCounter + 1;
+        if (sclkTransition) begin
+          sclk <= ~sclk;
+        end
+      end
+
+      if (sclkTransition && sclk) begin
+        // Count on negedge of sclk
+        lrckCounter <= lrckCounter + 1;
+        if (lrckTransition) begin
+          lrck <= ~lrck;
+        end
       end
     end
   end
@@ -130,7 +133,7 @@ module I2SController #(
     if (reset) begin
       adcSynchronizer <= 0;
     end else begin
-      adcSynchronizer <= {adcSynchronizer[0], adcIn};
+      adcSynchronizer <= {adcSynchronizer[0], adc};
     end
   end
 
@@ -140,7 +143,7 @@ module I2SController #(
     end else begin
       unique case (currentState)
         IDLE_S: begin
-          if (lrckTransitionPulse && !lrck) begin
+          if (lrckTransition && !lrck) begin
             // positive edge of lrck
             nextState = CLEAR_S;
           end else begin
@@ -158,8 +161,8 @@ module I2SController #(
         end
 
         SHIFT_S: begin
-          if (lrClockCounter == SerialDataWidth) begin
-            if (adcScale > lrClockCounter) begin
+          if (lrckCounter == SerialDataWidth + 1) begin
+            if (adcScaleBounded > lrckCounter - 1) begin
               nextState = SHIFT_MORE_S;
             end else begin
               nextState = IDLE_S;
@@ -170,7 +173,7 @@ module I2SController #(
         end
 
         SHIFT_MORE_S: begin
-          if (additionalShiftCounter == (adcScale - SerialDataWidth - 1)) begin
+          if (additionalShiftCounter == (adcScaleBounded - SerialDataWidth - 1)) begin
             nextState = IDLE_S;
           end else begin
             nextState = SHIFT_MORE_S;
@@ -191,7 +194,7 @@ module I2SController #(
     end else begin
       unique case (currentState)
         IDLE_S: begin
-          adcValidPulse <= 0;
+          adcDataValid <= 0;
           additionalShiftCounter <= 0;
         end
 
@@ -200,12 +203,12 @@ module I2SController #(
         end
 
         SHIFT_S: begin
-          if (samplePulse && lrClockCounter <= adcScale) begin
-            adcData <= {adcData[DataWidth-2:0], adcSynced};
+          if (samplePulse && lrckCounter <= adcScaleBounded) begin
+            adcData <= {adcData[DataWidth-2:0], adcQ};
           end
 
           if (nextState == IDLE_S) begin
-            adcValidPulse <= 1;
+            adcDataValid <= 1;
           end
         end
 
@@ -215,7 +218,7 @@ module I2SController #(
           adcData <= {adcData[DataWidth-2:0], 1'b0};
 
           if (nextState == IDLE_S) begin
-            adcValidPulse <= 1;
+            adcDataValid <= 1;
           end
         end
       endcase
@@ -224,32 +227,40 @@ module I2SController #(
 
   always_ff @(posedge clk) begin : DacExecution
     if (reset) begin
-      intDacData <= 0;
+      dac <= 0;
     end else begin
       unique case (currentState)
         IDLE_S: begin
-          dacOut <= 0;
+          dac <= 0;
         end
 
         CLEAR_S: begin
-          // Update internal register
-          intDacData <= dacData;
         end
 
         SHIFT_S: begin
-          if (dacTransitionPulse) begin
+          if (dacTransition) begin
             if (dacDataIndexValid) begin
-              dacOut <= intDacData[SerialDataWidth-lrClockCounter-1+DataWidth-dacScale];
+              dac <= dacDataQ[SerialDataWidth-lrckCounter+DataWidth-dacScaleBounded];
             end else begin
-              dacOut <= 0;
+              dac <= 0;
             end
           end
         end
 
         SHIFT_MORE_S: begin
-          dacOut <= 0;
+          dac <= 0;
         end
       endcase
+    end
+  end
+
+  always_ff @(posedge clk) begin : DacDataUpdate
+    if (reset) begin
+      dacDataQ <= 0;
+    end else begin
+      if (dacDataValid && currentState != SHIFT_S && !dacDataIndexValid) begin
+        dacDataQ <= dacData;
+      end
     end
   end
 endmodule

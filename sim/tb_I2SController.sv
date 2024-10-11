@@ -46,8 +46,6 @@ class I2S2SlaveModel;
 endclass  //I2S2SlaveModel
 
 module tb_I2SController ();
-  parameter int ClockConfigWidth = 6;
-
   // Testbench signals
   realtime timeStart;  // Time in ps
   realtime timeEnd;  // Time in ps
@@ -62,7 +60,7 @@ module tb_I2SController ();
   logic clk;
   logic reset;
 
-  logic [ClockConfigWidth-1:0] clockConfig;
+  logic [3:0] clockConfig;
 
   logic [5:0] adcScale;
   wire [11:0] adcData;
@@ -70,23 +68,23 @@ module tb_I2SController ();
 
   logic [5:0] dacScale;
   logic [11:0] dacData;
+  logic dacDataValid;
 
-  I2SController #(
-      .ClockConfigWidth(ClockConfigWidth)
-  ) i2sController (
+  I2SController i2sController (
       .clk(clk),
       .reset(reset),
       .clockConfig(clockConfig),
-      .adcScaleRaw(adcScale),
+      .adcScale(adcScale),
       .adcData(adcData),
       .adcValidPulse(adcValidPulse),
-      .dacScaleRaw(dacScale),
+      .dacScale(dacScale),
       .dacData(dacData),
+      .dacDataValid(dacDataValid),
       .mclk(i2s2If.mclk),
       .sclk(i2s2If.sclk),
       .lrck(i2s2If.lrck),
-      .adcIn(i2s2If.adc),
-      .dacOut(i2s2If.dac)
+      .adc(i2s2If.adc),
+      .dac(i2s2If.dac)
   );
 
   task static WaitClock(input int cycles);
@@ -116,6 +114,7 @@ module tb_I2SController ();
     adcScale = 0;
     dacScale = 0;
     dacData = 0;
+    dacDataValid = 0;
     i2s2If.adc = 0;
     reset = 1;
     WaitClock(2);
@@ -123,31 +122,43 @@ module tb_I2SController ();
     // Test clock generation
     $display("Testing clock generation");
 
-    // Config = 1, div 4
-    // F_sclk = 8MHz, 125000ps
-    // F_lrck = 125kHz, 8000000ps
-    clockConfig = 6'b0000001;
+    // Set config to slowest
+    // MCLK 1MHz
+    // SCLK 250kHz
+    // LRCK 3906.25kHz
+    clockConfig = 4'd15;
     WaitClock(1);
     reset = 0;
 
+    // Lock clock generator
+    @(posedge i2s2If.lrck);
+    @(posedge i2s2If.lrck);
+
+    @(posedge i2s2If.mclk);
+    timeStart = $realtime();
+    @(posedge i2s2If.mclk);
+    timeEnd = $realtime();
+    assert ((timeEnd - timeStart) == 1000000ps)
+    else $error("mclk period incorrect");
+
     @(posedge i2s2If.sclk);
     timeStart = $realtime();
     @(posedge i2s2If.sclk);
     timeEnd = $realtime();
-    assert ((timeEnd - timeStart) == 125000ps)
-    else $error("SCLK period incorrect");
+    assert ((timeEnd - timeStart) == 4000000ps)
+    else $error("sclk period incorrect");
 
     @(posedge i2s2If.lrck);
     timeStart = $realtime();
     @(posedge i2s2If.lrck);
     timeEnd = $realtime();
-    assert ((timeEnd - timeStart) == 8000000ps)
-    else $error("LRCK period incorrect");
+    assert ((timeEnd - timeStart) == 256000000ps)
+    else $error("lrck period incorrect");
 
     // Test ADC scaling
     $display("Testing ADC scaling");
     @(negedge i2s2If.lrck);
-    clockConfig = 6'b0000000;  // Set clock config to fastest possible for sim purposes
+    clockConfig = 4'b0;  // Set clock config to fastest possible for sim purposes
     WaitClock(1);
 
     comparisonBuffer = 36'h000ffffff;
@@ -192,9 +203,15 @@ module tb_I2SController ();
     // Test DAC scaling
     $display("Testing DAC scale");
     comparisonBuffer = 36'h000000fff;
+    @(negedge i2s2If.lrck);
+    dacData = 12'hfff;
+    dacDataValid = 1;
+    WaitClock(2);
+    dacData = 0;
+    dacDataValid = 0;
+
     for (int i = 0; i < 36; i++) begin
       dacScale = i;
-      dacData  = 12'hfff;
 
       model.ReadDac(recvDacData);
       assert (recvDacData == comparisonBuffer[35:12])
@@ -213,7 +230,6 @@ module tb_I2SController ();
     comparisonBuffer = 36'h000000fff;
     for (int i = 37; i < ((1 << 6) - 1); i++) begin
       dacScale = i;
-      dacData  = 12'hfff;
 
       model.ReadDac(recvDacData);
       assert (recvDacData == comparisonBuffer[35:12])

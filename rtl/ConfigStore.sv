@@ -7,8 +7,12 @@
 `timescale 1ns / 1ps
 
 module ConfigStore #(
-    parameter integer ClockConfigWidth = 6,
+    parameter integer ClockConfigWidth = 4,
     parameter integer ScaleWidth = 6,
+
+    parameter logic [ClockConfigWidth-1:0] DefaultClockConfig = 4'hf,  // Around 7kHz for 32MHz Clk
+    parameter logic [ScaleWidth-1:0] DefaultAdcScale = 6'd24,  // No scaling
+    parameter logic [ScaleWidth-1:0] DefaultDacScale = 6'd12,  // No Scaling
 
     localparam integer ShiftRegSize = ClockConfigWidth + (ScaleWidth * 2)
 ) (
@@ -32,8 +36,8 @@ module ConfigStore #(
 
   always @(posedge clk) begin
     if (reset) begin
-      shiftReg <= 0;
-    end else begin
+      shiftReg <= {DefaultDacScale, DefaultAdcScale, DefaultClockConfig};
+    end else if (serialEn) begin
       shiftReg <= {shiftReg[ShiftRegSize-2:0], serialIn};
     end
   end

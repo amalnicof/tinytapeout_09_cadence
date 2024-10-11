@@ -13,3 +13,11 @@ sim/xcelium.d/*
 xrun.history
 xrun.key
 xrun.log
+
+# Vivado
+FIREngine.cache
+FIREngine.hw
+FIREngine.xpr
+FIREngine.ip_user_files
+FIREngine.runs
+FIREngine.srcs
