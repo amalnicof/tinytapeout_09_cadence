@@ -9,7 +9,8 @@
 module FIREngine #(
     localparam integer ClockConfigWidth = 4,
     localparam integer DataWidth = 12,
-    localparam integer ScaleWidth = 6
+    localparam integer ScaleWidth = 6,
+    localparam integer Taps = 8
 ) (
     input wire clk,
     input wire reset,
@@ -27,7 +28,8 @@ module FIREngine #(
     input wire cs
 );
   // Serial signals
-  wire serial;
+  wire serial;  // from spi to config
+  wire serialFir;  // from config to fir
   wire serialEn;
 
   // Configuration signals
@@ -36,8 +38,11 @@ module FIREngine #(
   wire [ScaleWidth-1:0] dacScale;
 
   // Data signals
-  wire [11:0] adcData;
+  wire [DataWidth-1:0] adcData;
   wire adcDataValid;
+
+  wire [DataWidth-1:0] firData;
+  wire firDataValid;
 
   // Instantiations
   I2SController #(
@@ -51,13 +56,28 @@ module FIREngine #(
       .adcData(adcData),
       .adcDataValid(adcDataValid),
       .dacScale(dacScale),
-      .dacData(adcData),  // TODO: DEBUG: Pass adc to dac
-      .dacDataValid(adcDataValid),  // TODO: DEBUG: Pass adc to dac
+      .dacData(firData),
+      .dacDataValid(firDataValid),
       .mclk(mclk),
       .sclk(sclk),
       .lrck(lrck),
       .adc(adc),
       .dac(dac)
+  );
+
+  fir #(
+      .BITS(DataWidth),
+      .TAPS(Taps)
+  ) firInst (
+      .clk(clk),
+      .rst_n(!reset),
+      .start(adcDataValid),
+      .lock(!cs),  // Lock when spi is writing data
+      .done(firDataValid),
+      .coeff_load_in(serialEn),
+      .coeff_in(serialFir),
+      .x(adcData),
+      .y(firData)
   );
 
   SPISlave spiSlave (
@@ -78,7 +98,7 @@ module FIREngine #(
       .reset(reset),
       .serialEn(serialEn),
       .serialIn(serial),
-      .serialOut(),  // TODO: Connect to coefficient shift register
+      .serialOut(serialFir),
       .clockConfig(clockConfig),
       .adcScale(adcScale),
       .dacScale(dacScale)

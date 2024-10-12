@@ -18,6 +18,12 @@ simgui:
 	-top $(tb) \
 	+gui
 
+sim_fir_engine:
+	xrun tb_FIREngine.sv \
+	../rtl/* \
+	-access +rwc \
+	-top tb_FIREngine
+
 clean:
 	rm -rf \
 	outputs \

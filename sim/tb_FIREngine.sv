@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-interface i2s2_if;
+interface i2s_if;
   logic mclk;
   logic sclk;
   logic lrck;
@@ -8,57 +8,113 @@ interface i2s2_if;
   logic dac;
 
   modport Slave(input mclk, input sclk, input lrck, output adc, input dac);
-endinterface  //i2s2_if
+endinterface  // i2s_if
 
-class I2S2SlaveModel;
-  virtual interface i2s2_if.Slave i2s2;
+interface spi_if;
+  logic sclk;
+  logic mosi;
+  logic cs;  // Active low chip-select
 
-  function new(virtual interface i2s2_if.Slave s);
-    i2s2 = s;
+  modport Master(output sclk, output mosi, output cs);
+endinterface
+
+class I2SSlaveModel;
+  virtual interface i2s_if.Slave i2s;
+
+  function new(virtual interface i2s_if.Slave s);
+    i2s = s;
+    i2s.adc = 1'b0;
   endfunction  //new()
 
   task static SendAdc(input logic [23:0] data);
-    @(posedge i2s2.lrck);  // Only send data on high lrck
+    @(posedge i2s.lrck);  // Only send data on high lrck
 
     for (int i = 0; i < 24; i++) begin
-      @(posedge i2s2.sclk);
-      i2s2.adc = data[23-i];
+      @(posedge i2s.sclk);
+      i2s.adc = data[23-i];
     end
   endtask
 
   task static ReadDac(output logic [23:0] data);
-    @(posedge i2s2.lrck);  // Only read data on high lrck
-    @(negedge i2s2.sclk);  // Skip first sample pulse
+    @(posedge i2s.lrck);  // Only read data on high lrck
+    @(negedge i2s.sclk);  // Skip first sample pulse
 
     for (int i = 0; i < 24; i++) begin
-      @(negedge i2s2.sclk);
-      data = {data[22:0], i2s2.dac};
+      @(negedge i2s.sclk);
+      data = {data[22:0], i2s.dac};
     end
   endtask
-endclass  //I2S2SlaveModel
+endclass  // I2SSlaveModel
+
+class SPIMasterModel;
+  virtual interface spi_if.Master spi;
+  logic stopClockGen;
+
+  function new(virtual interface spi_if.Master s);
+    spi = s;
+    spi.sclk = 1'b0;
+    spi.mosi = 1'b0;
+    spi.cs = 1'b1;
+  endfunction
+
+  task static GenerateClock(input logic stop);
+    // Generate 1MHz clock
+    while (!stopClockGen) begin
+      #500ns;
+      spi.sclk = !spi.sclk;
+    end
+  endtask  // static
+
+  task static SendData(input logic data[]);
+    stopClockGen = 0;
+
+    fork
+      GenerateClock();
+      begin
+        cs <= 1'b0;
+        @(posedge spi.sclk);
+        @(posedge spi.sclk);
+        @(posedge spi.sclk);
+        @(posedge spi.sclk);
+        stopClockGen = 1;
+      end
+    join
+  endtask  // static
+endclass
 
 module tb_FIREngine ();
-  i2s2_if i2s2If ();
-  I2S2SlaveModel model;
+  i2s_if i2s ();
+  spi_if spi ();
+  I2SSlaveModel i2sModel;
+  SPIMasterModel spiModel;
 
-  logic [23:0] adcData;
-  logic [23:0] recvDacData;
+  // Configuration
+  logic [5:0] dacScale;
+  logic [5:0] adcScale;
+  logic [3:0] clockConfig;
+  logic [11:0] taps[8];
+  wire [111:0] configData = {dacScale, adcScale, clockConfig, taps};
 
   // DUT signals
   logic clk;
   logic reset;
 
-  FIREngine dut (
+  FIREngine #(
+      .ClockConfigWidth(4),
+      .DataWidth(12),
+      .ScaleWidth(6),
+      .Taps(8)
+  ) dut (
       .clk(clk),
       .reset(reset),
-      .mclk(i2s2If.mclk),
-      .sclk(i2s2If.sclk),
-      .lrck(i2s2If.lrck),
-      .adc(i2s2If.adc),
-      .dac(i2s2If.dac),
-      .spiClk(1'b1),
-      .mosi(1'b1),
-      .cs(1'b1)
+      .mclk(i2s.mclk),
+      .sclk(i2s.sclk),
+      .lrck(i2s.lrck),
+      .adc(i2s.adc),
+      .dac(i2s.dac),
+      .spiClk(spi.sclk),
+      .mosi(spi.mosi),
+      .cs(spi.cs)
   );
 
   task static WaitClock(input int cycles);
@@ -77,29 +133,23 @@ module tb_FIREngine ();
     $dumpfile("outputs/tb_FIREngine_trace.vcd");
     $dumpvars(0, tb_FIREngine);
 
-    $display("=======================");
+    $display("===================");
     $display("FIREngine Testbench");
-    $display("=======================");
+    $display("===================");
 
-    model = new(i2s2If.Slave);
+    i2sModel = new(i2s.Slave);
+    spiModel = new(spi.Master);
 
-    // Test ADC DAC Passthrough
-    i2s2If.adc = 0;
+    // Reset core
     reset = 1;
     WaitClock(3);
     reset = 0;
     WaitClock(2);
 
-    adcData = $urandom();
-    model.SendAdc(adcData);
-    model.ReadDac(recvDacData);
-    assert ({12'h0, adcData[11:0]} == recvDacData)
-    else
-      $error(
-          "ADC DAC Passthrough failed, should be %h not %h", {12'h0, adcData[11:0]}, recvDacData
-      );
+    // Test configuration
+    spiModel.SendData(configData);
 
-    @(negedge i2s2If.lrck);
+    @(negedge i2s.lrck);
     WaitClock(16);
     $display("Testing complete.");
     $display("=================");
