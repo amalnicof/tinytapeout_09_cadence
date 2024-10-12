@@ -19,4 +19,12 @@ simgui:
 	+gui
 
 clean:
-	rm -rf waves.shm trace.vcd  xcelium.d  xrun.history  xrun.log xrun.key *~
+	rm -rf \
+	outputs \
+	waves.shm \
+	trace.vcd \
+	xcelium.d \
+	xrun.history \
+	xrun.log \
+	xrun.key \
+	*~
