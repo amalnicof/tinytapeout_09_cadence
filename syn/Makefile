@@ -1,11 +1,15 @@
-all: syn
+MODULE = $(sv).sv
+
+all:
+	@echo "syn sv=<top_module> clk=<clk_period>"
+	@echo "example: syn sv=fir clk=3"
 
 syn:
-	BASENAME=iir \
-		CLOCKPERIOD=3 \
-		TIMINGPATH=/opt/cadence/libraries/gsclib045_all_v4.7/gsclib045/timing \
-		TIMINGLIB=slow_vdd1v0_basicCells.lib \
-		VERILOG='../rtl/iir.sv' \
+	BASENAME=$(sv) \
+		CLOCKPERIOD=$(clk) \
+		TIMINGPATH=/opt/skywater/libraries/sky130_fd_sc_hd/latest/timing/ \
+        	TIMINGLIB=sky130_fd_sc_hd__ss_n40C_1v76.lib \
+		VERILOG='../rtl/$(MODULE)' \
 		genus -f genus_script.tcl
 
 clean:

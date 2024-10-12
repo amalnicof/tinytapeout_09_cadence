@@ -1,1 +1,0 @@
-s1(04Oct2024:16:36:31):  xrun firtb.sv ../rtl/fir.sv -access +rwc -top firtb 

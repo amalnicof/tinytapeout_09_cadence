@@ -1,20 +1,31 @@
-sim-postsyn:
-	xrun -timescale 1ns/1ps \
-	tb.sv \
-	../syn/outputs/iir_netlist.v \
-	/opt/cadence/libraries/gsclib045_all_v4.7/gsclib045/verilog/slow_vdd1v0_basicCells.v \
-	-access +rwc \
-	-define USE_SDF \
-	-top tb
+TBNAME = $(tb).sv
+NETLIST = $(mod)_netlist.v
 
-sim-postsyn-gui:
+all:
+	@echo "sim tb=<TBNAME> mod=<MODULENAME>"
+	@echo "simgui tb=<TBNAME> mod=<MODULENAME>"
+	@echo "example: sim tb=firtb mod=fir"
+
+
+sim:
 	xrun -timescale 1ns/1ps \
-	tb.sv \
-	../syn/outputs/iir_netlist.v \
+	../tb/$(TBNAME) \
+	../syn/outputs/$(NETLIST) \
 	/opt/cadence/libraries/gsclib045_all_v4.7/gsclib045/verilog/slow_vdd1v0_basicCells.v \
 	-access +rwc \
 	-define USE_SDF \
-	-top tb \
+	-define NETLIST \
+	-top $(tb)
+
+simgui:
+	xrun -timescale 1ns/1ps \
+	../tb/$(TBNAME) \
+	../syn/outputs/$(NETLIST) \
+	/opt/cadence/libraries/gsclib045_all_v4.7/gsclib045/verilog/slow_vdd1v0_basicCells.v \
+	-access +rwc \
+	-define USE_SDF \
+	-define NETLIST \
+	-top $(tb) \
 	+gui
 
 clean:

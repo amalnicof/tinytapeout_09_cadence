@@ -47,6 +47,7 @@ report_timing > reports/${basename}_report_timing.rpt
 report_power  > reports/${basename}_report_power.rpt
 report_area   > reports/${basename}_report_area.rpt
 report_qor    > reports/${basename}_report_qor.rpt
+report_gates  > reports/${basename}_report_gates.rpt
 
 set outputnetlist     outputs/${basename}_netlist.v
 set outputconstraints outputs/${basename}_constraints.sdc

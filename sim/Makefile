@@ -6,13 +6,13 @@ all:
 	@echo "example: sim tb=firtb"
 
 sim:
-	xrun $(TBNAME) \
+	xrun ../tb/$(TBNAME) \
 	../rtl/* \
 	-access +rwc \
 	-top $(tb)
 
 simgui:
-	xrun $(TBNAME).sv \
+	xrun ../tb/$(TBNAME) \
 	../rtl/* \
 	-access +rwc \
 	-top $(tb) \
