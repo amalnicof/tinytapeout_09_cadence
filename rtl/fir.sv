@@ -51,8 +51,9 @@ module fir #(
   end
 
   integer k;
+  integer f;
   // coefficients LSFR
-  reg [TAPS_HALF-1:0][BITS-1:0] coeffs;
+  reg [BITS-1:0] coeffs[TAPS_HALF];
   always_ff @(posedge clk) begin
     // reset
     if (!rst_n) begin
@@ -63,8 +64,19 @@ module fir #(
     end else begin
       if (coeff_load_in) begin
         coeffs[0][0] <= coeff_in;
-        for (k = BITS - 1; k > 0; k = k - 1) begin
-          coeffs[0][k] <= coeffs[0][k-1];
+        for (k = 0; k < TAPS_HALF - 1; k++) begin
+          // connection between coeffs
+          coeffs[k+1][0] <= coeffs[k][BITS-1];
+
+          // Connection within coeffs
+          for (f = 0; f < BITS - 1; f++) begin
+            coeffs[k][f+1] <= coeffs[k][f];
+          end
+        end
+
+        // Connection within last coeff
+        for (f = 0; f < BITS - 1; f++) begin
+          coeffs[TAPS_HALF-1][f+1] <= coeffs[TAPS_HALF-1][f];
         end
       end else if (sft && !lock) begin
         coeffs[0] <= coeffs[TAPS_HALF-1];
@@ -157,7 +169,7 @@ module fir #(
 
   // next state
   always_comb begin
-    unique case (state)
+    case (state)
       IDLE: begin
         if (start) n_state = OP;
         else if (coeff_load_in) n_state = COEFF_LD;
@@ -178,6 +190,9 @@ module fir #(
         if (sample_cnt < TAPS_HALF - 1) n_state = OP;
         else n_state = IDLE;
       end
+
+      default: begin
+      end
     endcase
   end
 
@@ -189,7 +204,7 @@ module fir #(
     mac_en = 1'b0;
     sample_cnt_rst = 1'b0;
     done = 1'b0;
-    unique case (state)
+    case (state)
       IDLE: begin
         sample_cnt_rst = 1'b1;
       end
@@ -211,6 +226,9 @@ module fir #(
         if (n_state == IDLE) begin
           done = 1'b1;
         end
+      end
+
+      default: begin
       end
     endcase
   end

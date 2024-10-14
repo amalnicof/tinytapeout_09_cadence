@@ -57,7 +57,7 @@ class SPIMasterModel;
     spi.cs = 1'b1;
   endfunction
 
-  task static GenerateClock(input logic stop);
+  task static GenerateClock();
     // Generate 1MHz clock
     while (!stopClockGen) begin
       #500ns;
@@ -71,18 +71,25 @@ class SPIMasterModel;
     fork
       GenerateClock();
       begin
-        cs <= 1'b0;
         @(posedge spi.sclk);
-        @(posedge spi.sclk);
-        @(posedge spi.sclk);
-        @(posedge spi.sclk);
-        stopClockGen = 1;
+        spi.cs = 1'b0;
+
+        for (int i = 0; i < data.size; i++) begin
+          @(negedge spi.sclk);
+          spi.mosi = data[i];
+        end
+
+        @(negedge spi.sclk);
+        spi.cs = 1'b1;
+        stopClockGen = 1'b1;
       end
     join
   endtask  // static
 endclass
 
 module tb_FIREngine ();
+  localparam integer NumCoeff = 4;
+
   i2s_if i2s ();
   spi_if spi ();
   I2SSlaveModel i2sModel;
@@ -92,19 +99,14 @@ module tb_FIREngine ();
   logic [5:0] dacScale;
   logic [5:0] adcScale;
   logic [3:0] clockConfig;
-  logic [11:0] taps[8];
-  wire [111:0] configData = {dacScale, adcScale, clockConfig, taps};
+  logic [11:0] coeff[NumCoeff];
+  logic configData[6+6+4+(12*NumCoeff)];
 
   // DUT signals
   logic clk;
   logic reset;
 
-  FIREngine #(
-      .ClockConfigWidth(4),
-      .DataWidth(12),
-      .ScaleWidth(6),
-      .Taps(8)
-  ) dut (
+  FIREngine dut (
       .clk(clk),
       .reset(reset),
       .mclk(i2s.mclk),
@@ -147,9 +149,27 @@ module tb_FIREngine ();
     WaitClock(2);
 
     // Test configuration
+    $display("Test configuration");
+    dacScale = $urandom();
+    adcScale = $urandom();
+    clockConfig = $urandom();
+    for (int i = 0; i < NumCoeff; i++) begin
+      coeff[i] = $urandom();
+    end
+    configData = {>>{{<<12{coeff}}, dacScale, adcScale, clockConfig}};
     spiModel.SendData(configData);
 
-    @(negedge i2s.lrck);
+    assert (clockConfig == dut.clockConfig)
+    else $error("clockConfig incorrect, should be %h not %h", clockConfig, dut.clockConfig);
+    assert (adcScale == dut.adcScale)
+    else $error("adcScale incorrect, should be %h not %h", adcScale, dut.adcScale);
+    assert (dacScale == dut.dacScale)
+    else $error("dacScale incorrect, should be %h not %h", dacScale, dut.dacScale);
+    for (int i = 0; i < NumCoeff; i++) begin
+      assert (coeff[i] == dut.firInst.coeffs[i])
+      else $error("coeff incorrect, at %d should be %h not %h", i, coeff[i], dut.firInst.coeffs[i]);
+    end
+
     WaitClock(16);
     $display("Testing complete.");
     $display("=================");
