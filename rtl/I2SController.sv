@@ -73,8 +73,8 @@ module I2SController #(
   wire sclkTransition = mclkTransition && mclk && sclkCounter == 1'h1;
   wire lrckTransition = sclkTransition && sclk && lrckCounter == 5'h1f;
 
-  wire samplePulse = sclkTransition && !sclk;  // Pulse to sample adc, negedge of sclk
-  wire dacTransition = sclkTransition && !sclk;  // Pulse to change dac, posedge of sclk
+  wire samplePulse = sclkTransition && !sclk;  // Pulse to sample adc, posedge of sclk
+  wire dacTransition = sclkTransition && sclk;  // Pulse to change dac, negedge of sclk
 
   // external input synchronizer
   logic [1:0] adcSynchronizer;
@@ -91,8 +91,8 @@ module I2SController #(
   // Data should be sourced from dacDataQ when shifting
   wire dacDataIndexValid =
     signed'((LrckCounterWidth + 1)'(lrckCounter))
-      > signed'(SerialDataWidth) - signed'((ScaleWidth + 1)'(dacScaleBounded))
-    && lrckCounter < SerialDataWidth + DataWidth + 1 - dacScaleBounded;
+      > signed'(SerialDataWidth) - signed'((ScaleWidth + 1)'(dacScaleBounded+1))
+    && lrckCounter < SerialDataWidth + DataWidth - dacScaleBounded;
 
   // Generate clocks and pulses
   always_ff @(posedge clk) begin : ClockGeneration
@@ -240,7 +240,7 @@ module I2SController #(
         SHIFT_S: begin
           if (dacTransition) begin
             if (dacDataIndexValid) begin
-              dac <= dacDataQ[SerialDataWidth-lrckCounter+DataWidth-dacScaleBounded];
+              dac <= dacDataQ[SerialDataWidth-lrckCounter+DataWidth-dacScaleBounded-1];
             end else begin
               dac <= 0;
             end

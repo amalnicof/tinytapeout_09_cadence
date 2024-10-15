@@ -29,19 +29,23 @@ class I2S2SlaveModel;
     @(posedge i2s2.lrck);  // Only send data on high lrck
 
     for (int i = 0; i < 24; i++) begin
-      @(posedge i2s2.sclk);
+      @(negedge i2s2.sclk);
       i2s2.adc = data[23-i];
     end
+
+    @(negedge i2s2.lrck);
   endtask
 
   task static ReadDac(output logic [23:0] data);
     @(posedge i2s2.lrck);  // Only read data on high lrck
-    @(negedge i2s2.sclk);  // Skip first sample pulse
+    @(posedge i2s2.sclk);  // Skip first sample pulse
 
     for (int i = 0; i < 24; i++) begin
-      @(negedge i2s2.sclk);
+      @(posedge i2s2.sclk);
       data = {data[22:0], i2s2.dac};
     end
+
+    @(negedge i2s2.lrck);
   endtask
 endclass  //I2S2SlaveModel
 
@@ -76,7 +80,7 @@ module tb_I2SController ();
       .clockConfig(clockConfig),
       .adcScale(adcScale),
       .adcData(adcData),
-      .adcValidPulse(adcValidPulse),
+      .adcDataValid(adcValidPulse),
       .dacScale(dacScale),
       .dacData(dacData),
       .dacDataValid(dacDataValid),

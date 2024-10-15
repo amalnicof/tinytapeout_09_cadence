@@ -24,6 +24,12 @@ sim_fir_engine:
 	-access +rwc \
 	-top tb_FIREngine
 
+sim_i2s_controller:
+	xrun tb_I2SController.sv \
+	../rtl/I2SController.sv \
+	-access +rwc \
+	-top tb_I2SController
+
 clean:
 	rm -rf \
 	outputs \
