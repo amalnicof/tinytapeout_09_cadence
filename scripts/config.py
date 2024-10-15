@@ -3,18 +3,22 @@ import time
 
 CLOCK_CONFIG_WIDTH = 4
 SCALE_WIDTH = 6
+COEFF_WIDTH = 12
 
 CLOCK_CONFIG = 8 # Controls sampling rate
 ADC_SCALE = 12
 DAC_SCALE = 18 # Controls volume
-
+COEFFS = (0x1, 0x2, 0x3, 0x4)
 
 def generateConfig(clockConfig: int, adcScale: int, dacScale: int) -> bytes:
     data = 0
     data |= clockConfig
     data |= adcScale << CLOCK_CONFIG_WIDTH
     data |= dacScale << (SCALE_WIDTH + CLOCK_CONFIG_WIDTH)
-    byteData = data.to_bytes(2, "big")
+    for i, coeff in enumerate(COEFFS):
+        data |= coeff << ((SCALE_WIDTH * 2) + CLOCK_CONFIG_WIDTH + (i * COEFF_WIDTH))
+
+    byteData = data.to_bytes(8, "big")
     return byteData
 
 
@@ -42,4 +46,3 @@ def sweep() -> None:
 
 if __name__ == "__main__":
     main()
-    # sweep()

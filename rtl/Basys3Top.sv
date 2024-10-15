@@ -66,7 +66,11 @@ module Basys3Top (
       .probe11(mosi),
       .probe12(cs),
       .probe13(firEngine.serialEn),
-      .probe14(firEngine.serial)
+      .probe14(firEngine.serial),
+      .probe15(firEngine.firInst.coeffs[0]),
+      .probe16(firEngine.firInst.coeffs[1]),
+      .probe17(firEngine.firInst.coeffs[2]),
+      .probe18(firEngine.firInst.coeffs[3])
   );
 
   assign reset   = !locked;
