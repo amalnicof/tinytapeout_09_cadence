@@ -7,10 +7,11 @@
 `timescale 1ns / 1ps
 
 module FIREngine #(
+    parameter integer NTaps = 8,
+
     localparam integer ClockConfigWidth = 4,
     localparam integer DataWidth = 12,
-    localparam integer ScaleWidth = 6,
-    localparam integer Taps = 8
+    localparam integer ScaleWidth = 6
 ) (
     input wire clk,
     input wire reset,
@@ -67,7 +68,7 @@ module FIREngine #(
 
   fir #(
       .DataWidth(DataWidth),
-      .NTaps(Taps)
+      .NTaps(NTaps)
   ) firInst (
       .clk(clk),
       .rst(reset),

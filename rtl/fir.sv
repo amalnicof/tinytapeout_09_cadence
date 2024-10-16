@@ -12,9 +12,9 @@
 
 module fir #(
     parameter integer DataWidth = 12,
-    parameter integer NTaps = 8,
+    parameter integer NTaps = 9,
 
-    localparam integer NCoeffs = NTaps / 2,
+    localparam integer NCoeffs = (NTaps + 1) / 2,
     localparam integer AccumulatorWidth = $clog2(
         ((1 << DataWidth) - 1) * NTaps
     ) + DataWidth - 1 + 1  // max int + frac + sign
@@ -30,8 +30,8 @@ module fir #(
     output logic [DataWidth-1:0] y  // Output samples UFix<12,0>
 );
   generate
-    if (NTaps % 2 == 1) begin : g_ParameterVerification_NTaps
-      $fatal("NTaps must be even.");
+    if (NTaps % 2 == 0) begin : g_ParameterVerification_NTaps
+      $fatal("NTaps must be odd.");
     end
   endgenerate
 
@@ -40,6 +40,8 @@ module fir #(
 
   // control signals
   logic sft, sample_cnt_en, bit_cnt_en, mac_en, sample_cnt_rst;
+
+  reg [SAMPLE_CNT_BITS-1:0] sample_cnt;
 
   // samples LSFR
   // When a new sample is shifted in, the entire LSFR advances.
@@ -55,13 +57,19 @@ module fir #(
       if (start) begin
         // Shift in new sample
         samples <= {x, samples[0:NTaps-2]};
-      end else if (sft) begin
+      end else if (sft && sample_cnt != (NTaps / 2)) begin
         // Split the LSFR in 2
-        // x1 x2 x3 x4 | x5 x6 x7 x8
-        // x2 x3 x4 x1 | x8 x5 x6 x7
-        // x3 x4 x1 x2 | x7 x8 x5 x6
+        // x1 x2 x3 x4 | x5 | x6 x7 x8 x9
+        // x2 x3 x4 x1 | x5 | x9 x6 x7 x8
+        // x3 x4 x1 x2 | x5 | x8 x9 x6 x7
         // ...
-        samples <= {samples[1:(NTaps/2)-1], samples[0], samples[NTaps-1], samples[NTaps/2:NTaps-2]};
+        samples <= {
+          samples[1:(NTaps/2)-1],
+          samples[0],
+          samples[NTaps/2],
+          samples[NTaps-1],
+          samples[(NTaps>>1)+1:NTaps-2]
+        };
       end
     end
   end
@@ -101,7 +109,6 @@ module fir #(
   end
 
   // sample counter
-  reg [SAMPLE_CNT_BITS-1:0] sample_cnt;
   always_ff @(posedge clk) begin
     if (rst) begin
       sample_cnt <= 'd0;
@@ -130,21 +137,24 @@ module fir #(
 
   // MAC: Multiply and Accumulate
   logic [1:0] sel;
-  logic [AccumulatorWidth-1:0] currCoeff;
-  logic [AccumulatorWidth-1:0] currCoeff2;
   logic [AccumulatorWidth-1:0] mux_out;
   logic [AccumulatorWidth-1:0] acc_in;
   logic [AccumulatorWidth-1:0] accQ;
   always_comb begin
     // create select signal through filter symmetry
-    sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
-    currCoeff = coeffs[0] << bit_cnt;
-    currCoeff2 = currCoeff << 1;
+    if (sample_cnt == (NTaps / 2)) begin
+      // Use middle sample
+      sel = samples[NTaps/2][bit_cnt];
+    end else begin
+      // Use shifted samples
+      sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
+    end
+
     // MUX
     case (sel)
       2'b00:   mux_out = 'd0;
-      2'b01:   mux_out = currCoeff;
-      2'b10:   mux_out = currCoeff2;
+      2'b01:   mux_out = coeffs[0] << bit_cnt;
+      2'b10:   mux_out = coeffs[0] << (bit_cnt + 1);
       default: mux_out = 'd0;
     endcase
     acc_in = accQ + mux_out;

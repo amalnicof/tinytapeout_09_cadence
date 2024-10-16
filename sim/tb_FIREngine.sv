@@ -88,8 +88,8 @@ class SPIMasterModel;
 endclass
 
 module tb_FIREngine ();
-  localparam integer NTaps = 8;
-  localparam integer NCoeff = NTaps / 2;
+  localparam integer NTaps = 9;
+  localparam integer NCoeff = (NTaps + 1) / 2;
 
   logic [23:0] expFilterOutput;
   logic [23:0] adcData;
@@ -111,7 +111,9 @@ module tb_FIREngine ();
   logic clk;
   logic reset;
 
-  FIREngine dut (
+  FIREngine #(
+      .NTaps(NTaps)
+  ) dut (
       .clk(clk),
       .reset(reset),
       .mclk(i2s.mclk),
@@ -135,9 +137,10 @@ module tb_FIREngine ();
     begin
       filterSamples = {in, filterSamples[0:NTaps-2]};
       acc = 0;
-      for (int i = 0; i < NCoeff; i++) begin
+      for (int i = 0; i < NCoeff - 1; i++) begin
         acc += (filterSamples[i] + filterSamples[NTaps-1-i]) * coeffs[i];
       end
+      acc += coeffs[NCoeff-1] * filterSamples[NTaps/2];
 
       out = acc >> 11;
     end
