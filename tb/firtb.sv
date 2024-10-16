@@ -32,7 +32,7 @@ module firtb;
 
    fir
      `ifndef NETLIST 
-       #(.BITS(BITS), .TAPS(TAPS)) 
+       #(.BITS(BITS), .NTaps(TAPS)) 
      `endif
    DUT (
       .clk(clk),

@@ -88,8 +88,10 @@ class SPIMasterModel;
 endclass
 
 module tb_FIREngine ();
-  localparam integer NumCoeff = 4;
+  localparam integer NTaps = 8;
+  localparam integer NCoeff = NTaps / 2;
 
+  logic [23:0] expFilterOutput;
   logic [23:0] adcData;
   logic [23:0] dacData;
 
@@ -102,8 +104,8 @@ module tb_FIREngine ();
   logic [5:0] dacScale;
   logic [5:0] adcScale;
   logic [3:0] clockConfig;
-  logic [11:0] coeff[NumCoeff];
-  logic configData[6+6+4+(12*NumCoeff)];
+  logic [11:0] coeffs[NCoeff];
+  logic configData[6+6+4+(12*NCoeff)];
 
   // DUT signals
   logic clk;
@@ -124,7 +126,23 @@ module tb_FIREngine ();
 
   task static WaitClock(input int cycles);
     repeat (cycles) @(posedge clk);
-  endtask  //static
+  endtask  // static
+
+  task static ComputeFilterResponse(input logic [11:0] in, output logic [11:0] out);
+    static logic [11:0] filterSamples[NTaps] = '{NTaps{12'd0}};
+    logic [26:0] acc;  // UFix<16,11> TODO: SIGN
+
+    begin
+      filterSamples = {in, filterSamples[0:NTaps-2]};
+      acc = 0;
+      for (int i = 0; i < NCoeff; i++) begin
+        acc += (filterSamples[i] + filterSamples[NTaps-1-i]) * coeffs[i];
+      end
+
+      out = acc >> 11;
+    end
+
+  endtask  // static
 
   // Generate 32MHz clock
   initial begin
@@ -156,10 +174,10 @@ module tb_FIREngine ();
     dacScale = $urandom();
     adcScale = $urandom();
     clockConfig = $urandom();
-    for (int i = 0; i < NumCoeff; i++) begin
-      coeff[i] = $urandom();
+    for (int i = 0; i < NCoeff; i++) begin
+      coeffs[i] = $urandom();
     end
-    configData = {>>{{<<12{coeff}}, dacScale, adcScale, clockConfig}};
+    configData = {>>{{<<12{coeffs}}, dacScale, adcScale, clockConfig}};
     spiModel.SendData(configData);
 
     assert (clockConfig == dut.clockConfig)
@@ -168,22 +186,65 @@ module tb_FIREngine ();
     else $error("adcScale incorrect, should be %h not %h", adcScale, dut.adcScale);
     assert (dacScale == dut.dacScale)
     else $error("dacScale incorrect, should be %h not %h", dacScale, dut.dacScale);
-    for (int i = 0; i < NumCoeff; i++) begin
-      assert (coeff[i] == dut.firInst.coeffs[i])
-      else $error("coeff incorrect, at %d should be %h not %h", i, coeff[i], dut.firInst.coeffs[i]);
+    for (int i = 0; i < NCoeff; i++) begin
+      assert (coeffs[i] == dut.firInst.coeffs[i])
+      else
+        $error("coeff incorrect, at %d should be %h not %h", i, coeffs[i], dut.firInst.coeffs[i]);
     end
 
     $display("Test impulse response");
     dut.configStore.shiftReg = {6'd12, 6'd24, 4'd0};
-    dut.firInst.samples = 0;
+    dut.firInst.samples = '{NTaps{12'd0}};
 
     adcData = 1'b1 << 11;
     i2sModel.SendAdc(adcData);
-    for (int i = 0; i < NumCoeff; i++) begin
+    for (int i = 0; i < NTaps + 1; i++) begin
+      ComputeFilterResponse(i == 0 ? adcData : 0, expFilterOutput);
       i2sModel.ReadDac(dacData);
-      assert (dacData == coeff[i])
-      else $error("Impulse response incorrect, at %d should be %h not %h", i, coeff[i], dacData);
+
+      assert (dacData == expFilterOutput)
+      else
+        $error(
+            "Impulse response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData
+        );
     end
+
+    $display("Test random data response");
+    adcData = $urandom();
+    i2sModel.SendAdc(adcData);
+    for (int i = 0; i < NTaps * 2; i++) begin
+      fork
+        begin
+          ComputeFilterResponse(adcData, expFilterOutput);
+          adcData = $urandom();
+          i2sModel.SendAdc(adcData);
+        end
+        begin
+          i2sModel.ReadDac(dacData);
+        end
+      join
+
+      assert (dacData == expFilterOutput)
+      else $error("Response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData);
+    end
+
+    for (int i = 0; i < NTaps + 1; i++) begin
+      fork
+        begin
+          ComputeFilterResponse(adcData, expFilterOutput);
+          adcData = 0;
+          i2sModel.SendAdc(0);
+        end
+        begin
+          i2sModel.ReadDac(dacData);
+        end
+      join
+
+      assert (dacData == expFilterOutput)
+      else
+        $error("Fading response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData);
+    end
+
 
     WaitClock(16);
     $display("Testing complete.");

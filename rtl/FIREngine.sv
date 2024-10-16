@@ -66,11 +66,11 @@ module FIREngine #(
   );
 
   fir #(
-      .BITS(DataWidth),
-      .TAPS(Taps)
+      .DataWidth(DataWidth),
+      .NTaps(Taps)
   ) firInst (
       .clk(clk),
-      .rst_n(!reset),
+      .rst(reset),
       .start(adcDataValid),
       .lock(!cs),  // Lock when spi is writing data
       .done(firDataValid),

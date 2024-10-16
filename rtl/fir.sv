@@ -2,65 +2,66 @@
  * Module `fir`
  *
  * FIR Filter
- * Coefficients have the format SFix<1,m>, where m is BITS-1. For 12 bit data, the format is 1 sign
- * bit and 11 fractional bits.
- * Input and output samples are unsigned integers of size BITS.
+ * Coefficients have the format SFix<1,m>, where m is DataWidth-1. For 12 bit data, the format is 1
+ * sign bit and 11 fractional bits.
+ * Input and output samples are unsigned integers of size DataWidth.
  */
 
 
 `timescale 1ns / 1ps
 
 module fir #(
-    parameter integer BITS = 12,
-    parameter integer TAPS = 8,
+    parameter integer DataWidth = 12,
+    parameter integer NTaps = 8,
+
+    localparam integer NCoeffs = NTaps / 2,
     localparam integer AccumulatorWidth = $clog2(
-        ((1 << BITS) - 1) * TAPS
-    ) + BITS - 1 + 1  // int + frac + sign
+        ((1 << DataWidth) - 1) * NTaps
+    ) + DataWidth - 1 + 1  // max int + frac + sign
 ) (
     input wire clk,
-    input wire rst_n,
+    input wire rst,
     input wire start,
     input wire lock,  // lock signal to stop coefficient shifting
     output logic done,  // Done pulse when output data is valid
     input wire coeff_load_in,
     input wire coeff_in,  // Coefficients, SFix<1,11>
-    input wire [BITS-1:0] x,  // Input samples UFix<12,0>
-    output logic [BITS-1:0] y  // Output samples UFix<12,0>
+    input wire [DataWidth-1:0] x,  // Input samples UFix<12,0>
+    output logic [DataWidth-1:0] y  // Output samples UFix<12,0>
 );
+  generate
+    if (NTaps % 2 == 1) begin : g_ParameterVerification_NTaps
+      $fatal("NTaps must be even.");
+    end
+  endgenerate
 
-  localparam integer TAPS_HALF = TAPS >> 1;
-  localparam integer SAMPLE_CNT_BITS = $clog2(TAPS_HALF);
-  localparam integer BITS_CNT_BITS = $clog2(BITS);
+  localparam integer SAMPLE_CNT_BITS = $clog2(NCoeffs);
+  localparam integer BITS_CNT_BITS = $clog2(DataWidth);
 
   // control signals
   logic sft, sample_cnt_en, bit_cnt_en, mac_en, sample_cnt_rst;
 
-  integer i;
-  integer j;
   // samples LSFR
-  reg [TAPS-1:0][BITS-1:0] samples;
+  // When a new sample is shifted in, the entire LSFR advances.
+  // During the MAC operation, the LSFR is split in half, and advances in opposite directions.
+  // This allows the MAC process to just select from the LSB and MSB of the entire lsfr
+  logic [DataWidth-1:0] samples[NTaps];
   always_ff @(posedge clk) begin
-    // reset
-    if (!rst_n) begin
-      for (i = 0; i < TAPS; i = i + 1) begin
-        samples[i] <= 'd0;
-      end
-      // shifting
+    if (rst) begin
+      // reset
+      samples <= '{NTaps{DataWidth'(0)}};
     end else begin
+      // shifting
       if (start) begin
-        for (i = TAPS - 1; i > 0; i = i - 1) begin
-          samples[i] <= samples[i-1];
-        end
-        samples[0] <= x;
+        // Shift in new sample
+        samples <= {x, samples[0:NTaps-2]};
       end else if (sft) begin
-        samples[0] <= samples[TAPS_HALF-1];
-        samples[TAPS_HALF] <= samples[TAPS-1];
-        for (i = TAPS_HALF - 1; i > 0; i = i - 1) begin
-          samples[i] <= samples[i-1];
-        end
-        for (j = TAPS - 1; j > TAPS_HALF; j = j - 1) begin
-          samples[j] <= samples[j-1];
-        end
+        // Split the LSFR in 2
+        // x1 x2 x3 x4 | x5 x6 x7 x8
+        // x2 x3 x4 x1 | x8 x5 x6 x7
+        // x3 x4 x1 x2 | x7 x8 x5 x6
+        // ...
+        samples <= {samples[1:(NTaps/2)-1], samples[0], samples[NTaps-1], samples[NTaps/2:NTaps-2]};
       end
     end
   end
@@ -68,36 +69,33 @@ module fir #(
   integer k;
   integer f;
   // coefficients LSFR
-  reg [BITS-1:0] coeffs[TAPS_HALF];
+  // When loading coefficients, it becomes a bit lsfr, where the new bit is shifted from the LSB
+  // During the MAC operation, it shifts by DataWidth downwards
+  reg [DataWidth-1:0] coeffs[NCoeffs];
   always_ff @(posedge clk) begin
-    // reset
-    if (!rst_n) begin
-      for (k = 0; k < TAPS_HALF; k = k + 1) begin
-        coeffs[k] <= 'd0;
-      end
-      // shifting
+    if (rst) begin
+      // reset
+      coeffs <= '{NCoeffs{DataWidth'(0)}};
     end else begin
+      // shifting
       if (coeff_load_in) begin
         coeffs[0][0] <= coeff_in;
-        for (k = 0; k < TAPS_HALF - 1; k++) begin
+        for (k = 0; k < NCoeffs - 1; k++) begin
           // connection between coeffs
-          coeffs[k+1][0] <= coeffs[k][BITS-1];
+          coeffs[k+1][0] <= coeffs[k][DataWidth-1];
 
           // Connection within coeffs
-          for (f = 0; f < BITS - 1; f++) begin
+          for (f = 0; f < DataWidth - 1; f++) begin
             coeffs[k][f+1] <= coeffs[k][f];
           end
         end
 
         // Connection within last coeff
-        for (f = 0; f < BITS - 1; f++) begin
-          coeffs[TAPS_HALF-1][f+1] <= coeffs[TAPS_HALF-1][f];
+        for (f = 0; f < DataWidth - 1; f++) begin
+          coeffs[NCoeffs-1][f+1] <= coeffs[NCoeffs-1][f];
         end
       end else if (sft && !lock) begin
-        coeffs[0] <= coeffs[TAPS_HALF-1];
-        for (k = TAPS_HALF - 1; k > 0; k = k - 1) begin
-          coeffs[k] <= coeffs[k-1];
-        end
+        coeffs <= {coeffs[1:NCoeffs-1], coeffs[0]};
       end
     end
   end
@@ -105,7 +103,7 @@ module fir #(
   // sample counter
   reg [SAMPLE_CNT_BITS-1:0] sample_cnt;
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (rst) begin
       sample_cnt <= 'd0;
     end else begin
       if (sample_cnt_en) begin
@@ -119,10 +117,10 @@ module fir #(
   // bit counter
   reg [BITS_CNT_BITS-1:0] bit_cnt;
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (rst) begin
       bit_cnt <= 'd0;
     end else begin
-      if ((bit_cnt_en == 1'b1) && (bit_cnt < BITS - 1)) begin
+      if ((bit_cnt_en == 1'b1) && (bit_cnt < DataWidth - 1)) begin
         bit_cnt <= bit_cnt + 1'b1;
       end else begin
         bit_cnt <= 'd0;
@@ -139,7 +137,7 @@ module fir #(
   logic [AccumulatorWidth-1:0] accQ;
   always_comb begin
     // create select signal through filter symmetry
-    sel = samples[0][bit_cnt] + samples[TAPS-1][bit_cnt];
+    sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
     currCoeff = coeffs[0] << bit_cnt;
     currCoeff2 = currCoeff << 1;
     // MUX
@@ -154,7 +152,7 @@ module fir #(
 
   // accumulator register
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (rst) begin
       accQ <= 'd0;
     end else begin
       if (start) begin
@@ -168,7 +166,7 @@ module fir #(
   // Output value
   always_comb begin
     // Convert from SFix to UFix, TODO IMP SIGN
-    y = (accQ >> (BITS - 1)) & 12'hfff;  // Remove fractional bits, truncate to BITS
+    y = (accQ >> (DataWidth - 1)) & 12'hfff;  // Remove fractional bits, truncate to DataWidth
   end
 
   // STATE MACHINE
@@ -182,7 +180,7 @@ module fir #(
   state_e n_state, state;
   // transition states
   always_ff @(posedge clk) begin
-    if (!rst_n) begin
+    if (rst) begin
       state <= IDLE;
     end else begin
       state <= n_state;
@@ -210,12 +208,12 @@ module fir #(
       end
 
       OP: begin
-        if (bit_cnt < BITS - 2) n_state = OP;
+        if (bit_cnt < DataWidth - 2) n_state = OP;
         else n_state = SHIFT;
       end
 
       SHIFT: begin
-        if (sample_cnt < TAPS_HALF - 1) n_state = OP;
+        if (sample_cnt < NCoeffs - 1) n_state = OP;
         else n_state = IDLE;
       end
 
