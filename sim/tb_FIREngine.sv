@@ -30,17 +30,17 @@ class I2SSlaveModel;
     @(posedge i2s.lrck);  // Only send data on high lrck
 
     for (int i = 0; i < 24; i++) begin
-      @(posedge i2s.sclk);
+      @(negedge i2s.sclk);
       i2s.adc = data[23-i];
     end
   endtask
 
   task static ReadDac(output logic [23:0] data);
     @(posedge i2s.lrck);  // Only read data on high lrck
-    @(negedge i2s.sclk);  // Skip first sample pulse
+    @(posedge i2s.sclk);  // Skip first sample pulse
 
     for (int i = 0; i < 24; i++) begin
-      @(negedge i2s.sclk);
+      @(posedge i2s.sclk);
       data = {data[22:0], i2s.dac};
     end
   endtask
@@ -89,6 +89,9 @@ endclass
 
 module tb_FIREngine ();
   localparam integer NumCoeff = 4;
+
+  logic [23:0] adcData;
+  logic [23:0] dacData;
 
   i2s_if i2s ();
   spi_if spi ();
@@ -168,6 +171,18 @@ module tb_FIREngine ();
     for (int i = 0; i < NumCoeff; i++) begin
       assert (coeff[i] == dut.firInst.coeffs[i])
       else $error("coeff incorrect, at %d should be %h not %h", i, coeff[i], dut.firInst.coeffs[i]);
+    end
+
+    $display("Test impulse response");
+    dut.configStore.shiftReg = {6'd12, 6'd24, 4'd0};
+    dut.firInst.samples = 0;
+
+    adcData = 1'b1 << 11;
+    i2sModel.SendAdc(adcData);
+    for (int i = 0; i < NumCoeff; i++) begin
+      i2sModel.ReadDac(dacData);
+      assert (dacData == coeff[i])
+      else $error("Impulse response incorrect, at %d should be %h not %h", i, coeff[i], dacData);
     end
 
     WaitClock(16);

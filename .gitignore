@@ -21,3 +21,6 @@ FIREngine.xpr
 FIREngine.ip_user_files
 FIREngine.runs
 FIREngine.srcs
+
+# Python
+venv

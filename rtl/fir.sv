@@ -1,6 +1,21 @@
+/*
+ * Module `fir`
+ *
+ * FIR Filter
+ * Coefficients have the format SFix<1,m>, where m is BITS-1. For 12 bit data, the format is 1 sign
+ * bit and 11 fractional bits.
+ * Input and output samples are unsigned integers of size BITS.
+ */
+
+
+`timescale 1ns / 1ps
+
 module fir #(
-    parameter integer BITS = 8,
-    parameter integer TAPS = 4
+    parameter integer BITS = 12,
+    parameter integer TAPS = 8,
+    localparam integer AccumulatorWidth = $clog2(
+        ((1 << BITS) - 1) * TAPS
+    ) + BITS - 1 + 1  // int + frac + sign
 ) (
     input wire clk,
     input wire rst_n,
@@ -8,9 +23,9 @@ module fir #(
     input wire lock,  // lock signal to stop coefficient shifting
     output logic done,  // Done pulse when output data is valid
     input wire coeff_load_in,
-    input wire coeff_in,
-    input wire [BITS-1:0] x,
-    output logic [BITS-1:0] y
+    input wire coeff_in,  // Coefficients, SFix<1,11>
+    input wire [BITS-1:0] x,  // Input samples UFix<12,0>
+    output logic [BITS-1:0] y  // Output samples UFix<12,0>
 );
 
   localparam integer TAPS_HALF = TAPS >> 1;
@@ -117,10 +132,11 @@ module fir #(
 
   // MAC: Multiply and Accumulate
   logic [1:0] sel;
-  logic [BITS-1:0] currCoeff;
-  logic [BITS-1:0] currCoeff2;
-  logic [BITS-1:0] mux_out;
-  logic [BITS-1:0] acc_in;
+  logic [AccumulatorWidth-1:0] currCoeff;
+  logic [AccumulatorWidth-1:0] currCoeff2;
+  logic [AccumulatorWidth-1:0] mux_out;
+  logic [AccumulatorWidth-1:0] acc_in;
+  logic [AccumulatorWidth-1:0] accQ;
   always_comb begin
     // create select signal through filter symmetry
     sel = samples[0][bit_cnt] + samples[TAPS-1][bit_cnt];
@@ -133,20 +149,26 @@ module fir #(
       2'b10:   mux_out = currCoeff2;
       default: mux_out = 'd0;
     endcase
-    acc_in = y + mux_out;
+    acc_in = accQ + mux_out;
   end
 
   // accumulator register
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      y <= 'd0;
+      accQ <= 'd0;
     end else begin
       if (start) begin
-        y <= 'd0;
+        accQ <= 'd0;
       end else if (mac_en) begin
-        y <= acc_in;
+        accQ <= acc_in;
       end
     end
+  end
+
+  // Output value
+  always_comb begin
+    // Convert from SFix to UFix, TODO IMP SIGN
+    y = (accQ >> (BITS - 1)) & 12'hfff;  // Remove fractional bits, truncate to BITS
   end
 
   // STATE MACHINE
@@ -164,6 +186,12 @@ module fir #(
       state <= IDLE;
     end else begin
       state <= n_state;
+
+      if (state == SHIFT && n_state == IDLE) begin
+        done <= 1'b1;
+      end else begin
+        done <= 1'b0;
+      end
     end
   end
 
@@ -203,7 +231,6 @@ module fir #(
     bit_cnt_en = 1'b0;
     mac_en = 1'b0;
     sample_cnt_rst = 1'b0;
-    done = 1'b0;
     case (state)
       IDLE: begin
         sample_cnt_rst = 1'b1;
@@ -222,10 +249,6 @@ module fir #(
         mac_en = 1'b1;
         bit_cnt_en = 1'b1;
         sample_cnt_en = 1'b1;
-
-        if (n_state == IDLE) begin
-          done = 1'b1;
-        end
       end
 
       default: begin
