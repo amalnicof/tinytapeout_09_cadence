@@ -70,7 +70,9 @@ module Basys3Top (
       .probe15(firEngine.firInst.coeffs[0]),
       .probe16(firEngine.firInst.coeffs[1]),
       .probe17(firEngine.firInst.coeffs[2]),
-      .probe18(firEngine.firInst.coeffs[3])
+      .probe18(firEngine.firInst.coeffs[3]),
+      .probe19(firEngine.firInst.coeffs[4]),
+      .probe20(firEngine.firData)
   );
 
   assign reset   = !locked;

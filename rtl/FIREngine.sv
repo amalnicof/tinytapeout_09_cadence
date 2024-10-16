@@ -7,7 +7,7 @@
 `timescale 1ns / 1ps
 
 module FIREngine #(
-    parameter integer NTaps = 8,
+    parameter integer NTaps = 9,
 
     localparam integer ClockConfigWidth = 4,
     localparam integer DataWidth = 12,
