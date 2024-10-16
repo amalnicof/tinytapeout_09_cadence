@@ -7,10 +7,10 @@
 `timescale 1ns / 1ps
 
 module FIREngine #(
+    parameter integer NTaps = 9,
+
     localparam integer ClockConfigWidth = 4,
-    localparam integer DataWidth = 12,
-    localparam integer ScaleWidth = 6,
-    localparam integer Taps = 8
+    localparam integer DataWidth = 12
 ) (
     input wire clk,
     input wire reset,
@@ -34,14 +34,13 @@ module FIREngine #(
 
   // Configuration signals
   wire [ClockConfigWidth-1:0] clockConfig;
-  wire [ScaleWidth-1:0] adcScale;
-  wire [ScaleWidth-1:0] dacScale;
+  wire symCoeffs;
 
   // Data signals
-  wire [DataWidth-1:0] adcData;
+  wire signed [DataWidth-1:0] adcData;
   wire adcDataValid;
 
-  wire [DataWidth-1:0] firData;
+  wire signed [DataWidth-1:0] firData;
   wire firDataValid;
 
   // Instantiations
@@ -52,10 +51,8 @@ module FIREngine #(
       .clk(clk),
       .reset(reset),
       .clockConfig(clockConfig),
-      .adcScale(adcScale),
       .adcData(adcData),
       .adcDataValid(adcDataValid),
-      .dacScale(dacScale),
       .dacData(firData),
       .dacDataValid(firDataValid),
       .mclk(mclk),
@@ -67,13 +64,14 @@ module FIREngine #(
 
   fir #(
       .DataWidth(DataWidth),
-      .NTaps(Taps)
+      .NTaps(NTaps)
   ) firInst (
       .clk(clk),
       .rst(reset),
       .start(adcDataValid),
       .lock(!cs),  // Lock when spi is writing data
       .done(firDataValid),
+      .symCoeffs(symCoeffs),
       .coeff_load_in(serialEn),
       .coeff_in(serialFir),
       .x(adcData),
@@ -91,8 +89,7 @@ module FIREngine #(
   );
 
   ConfigStore #(
-      .ClockConfigWidth(ClockConfigWidth),
-      .ScaleWidth(ScaleWidth)
+      .ClockConfigWidth(ClockConfigWidth)
   ) configStore (
       .clk(clk),
       .reset(reset),
@@ -100,7 +97,6 @@ module FIREngine #(
       .serialIn(serial),
       .serialOut(serialFir),
       .clockConfig(clockConfig),
-      .adcScale(adcScale),
-      .dacScale(dacScale)
+      .symCoeffs(symCoeffs)
   );
 endmodule

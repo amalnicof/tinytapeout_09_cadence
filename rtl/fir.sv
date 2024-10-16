@@ -12,26 +12,31 @@
 
 module fir #(
     parameter integer DataWidth = 12,
-    parameter integer NTaps = 8,
+    parameter integer NTaps = 9,
 
-    localparam integer NCoeffs = NTaps / 2,
-    localparam integer AccumulatorWidth = $clog2(
-        ((1 << DataWidth) - 1) * NTaps
-    ) + DataWidth - 1 + 1  // max int + frac + sign
+    localparam integer NCoeffs = (NTaps + 1) / 2,
+
+    // The sum of coeff must be in [-1,1]
+    // int + extra int bit + frac bits + sign
+    localparam integer AccumulatorWidth = DataWidth + 1 + DataWidth - 1 + 1,
+    localparam logic signed [DataWidth-1:0] DataMax = (1 << (DataWidth - 1)) - 1,
+    localparam logic signed [DataWidth-1:0] DataMin = 1 << (DataWidth - 1)
+
 ) (
     input wire clk,
     input wire rst,
     input wire start,
     input wire lock,  // lock signal to stop coefficient shifting
     output logic done,  // Done pulse when output data is valid
+    input wire symCoeffs,  // If the coefficients are symmetric as compared to anti-symmetric
     input wire coeff_load_in,
     input wire coeff_in,  // Coefficients, SFix<1,11>
-    input wire [DataWidth-1:0] x,  // Input samples UFix<12,0>
-    output logic [DataWidth-1:0] y  // Output samples UFix<12,0>
+    input wire signed [DataWidth-1:0] x,  // Input samples SFix<12,0>
+    output logic signed [DataWidth-1:0] y  // Output samples SFix<12,0>
 );
   generate
-    if (NTaps % 2 == 1) begin : g_ParameterVerification_NTaps
-      $fatal("NTaps must be even.");
+    if (NTaps % 2 == 0) begin : g_ParameterVerification_NTaps
+      $fatal("NTaps must be odd.");
     end
   endgenerate
 
@@ -40,6 +45,8 @@ module fir #(
 
   // control signals
   logic sft, sample_cnt_en, bit_cnt_en, mac_en, sample_cnt_rst;
+
+  reg [SAMPLE_CNT_BITS-1:0] sample_cnt;
 
   // samples LSFR
   // When a new sample is shifted in, the entire LSFR advances.
@@ -55,13 +62,19 @@ module fir #(
       if (start) begin
         // Shift in new sample
         samples <= {x, samples[0:NTaps-2]};
-      end else if (sft) begin
+      end else if (sft && sample_cnt != (NTaps / 2)) begin
         // Split the LSFR in 2
-        // x1 x2 x3 x4 | x5 x6 x7 x8
-        // x2 x3 x4 x1 | x8 x5 x6 x7
-        // x3 x4 x1 x2 | x7 x8 x5 x6
+        // x1 x2 x3 x4 | x5 | x6 x7 x8 x9
+        // x2 x3 x4 x1 | x5 | x9 x6 x7 x8
+        // x3 x4 x1 x2 | x5 | x8 x9 x6 x7
         // ...
-        samples <= {samples[1:(NTaps/2)-1], samples[0], samples[NTaps-1], samples[NTaps/2:NTaps-2]};
+        samples <= {
+          samples[1:(NTaps/2)-1],
+          samples[0],
+          samples[NTaps/2],
+          samples[NTaps-1],
+          samples[(NTaps>>1)+1:NTaps-2]
+        };
       end
     end
   end
@@ -71,7 +84,7 @@ module fir #(
   // coefficients LSFR
   // When loading coefficients, it becomes a bit lsfr, where the new bit is shifted from the LSB
   // During the MAC operation, it shifts by DataWidth downwards
-  reg [DataWidth-1:0] coeffs[NCoeffs];
+  logic signed [DataWidth-1:0] coeffs[NCoeffs];
   always_ff @(posedge clk) begin
     if (rst) begin
       // reset
@@ -101,7 +114,6 @@ module fir #(
   end
 
   // sample counter
-  reg [SAMPLE_CNT_BITS-1:0] sample_cnt;
   always_ff @(posedge clk) begin
     if (rst) begin
       sample_cnt <= 'd0;
@@ -130,24 +142,44 @@ module fir #(
 
   // MAC: Multiply and Accumulate
   logic [1:0] sel;
-  logic [AccumulatorWidth-1:0] currCoeff;
-  logic [AccumulatorWidth-1:0] currCoeff2;
-  logic [AccumulatorWidth-1:0] mux_out;
-  logic [AccumulatorWidth-1:0] acc_in;
-  logic [AccumulatorWidth-1:0] accQ;
+  logic signed [AccumulatorWidth-1:0] mux_out;
+  logic signed [AccumulatorWidth-1:0] acc_in;
+  logic signed [AccumulatorWidth-1:0] accQ;
   always_comb begin
     // create select signal through filter symmetry
-    sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
-    currCoeff = coeffs[0] << bit_cnt;
-    currCoeff2 = currCoeff << 1;
+    if (sample_cnt == (NTaps / 2)) begin
+      // Use middle sample
+      sel = samples[NTaps/2][bit_cnt];
+    end else begin
+      // Use shifted samples
+      if (symCoeffs) begin
+        sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
+      end else begin
+        if (!samples[0][bit_cnt] && samples[NTaps-1][bit_cnt]) begin
+          // Should subtract coefficient
+          sel = 2'b11;
+        end else begin
+          // results in 0, 1, or 2
+          sel = samples[0][bit_cnt] - samples[NTaps-1][bit_cnt];
+        end
+      end
+    end
+
     // MUX
     case (sel)
       2'b00:   mux_out = 'd0;
-      2'b01:   mux_out = currCoeff;
-      2'b10:   mux_out = currCoeff2;
+      2'b01:   mux_out = AccumulatorWidth'(coeffs[0] << bit_cnt);
+      2'b10:   mux_out = AccumulatorWidth'(coeffs[0] << (bit_cnt + 1));
+      2'b11:   mux_out = AccumulatorWidth'(-(coeffs[0] << bit_cnt));
       default: mux_out = 'd0;
     endcase
-    acc_in = accQ + mux_out;
+
+    if (bit_cnt == 11) begin
+      // Sign should be subtraction
+      acc_in = accQ - mux_out;
+    end else begin
+      acc_in = accQ + mux_out;
+    end
   end
 
   // accumulator register
@@ -164,9 +196,18 @@ module fir #(
   end
 
   // Output value
+  logic signed [DataWidth:0] yInt;
   always_comb begin
-    // Convert from SFix to UFix, TODO IMP SIGN
-    y = (accQ >> (DataWidth - 1)) & 12'hfff;  // Remove fractional bits, truncate to DataWidth
+    // Remove fractional bits
+    // truncate to DataWidth, saturating
+    yInt = accQ >>> (DataWidth - 1);
+    if (yInt > DataMax) begin
+      y = DataMax;
+    end else if (yInt < DataMin) begin
+      y = DataMin;
+    end else begin
+      y = yInt[DataWidth-1:0];
+    end
   end
 
   // STATE MACHINE

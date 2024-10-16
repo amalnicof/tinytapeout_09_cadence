@@ -2,7 +2,7 @@
 // Copyright 2022-2024 Advanced Micro Devices, Inc. All Rights Reserved.
 // --------------------------------------------------------------------------------
 // Tool Version: Vivado v.2024.1 (win64) Build 5076996 Wed May 22 18:37:14 MDT 2024
-// Date        : Mon Oct 14 23:28:48 2024
+// Date        : Wed Oct 16 18:59:35 2024
 // Host        : Spire running 64-bit major release  (build 9200)
 // Command     : write_verilog -force -mode synth_stub
 //               c:/Users/haow6/Desktop/projects/tinytapeout_09_cadence/basys3/ip/ILA/ILA_stub.v
@@ -17,8 +17,8 @@
 (* X_CORE_INFO = "ila,Vivado 2024.1" *)
 module ILA(clk, probe0, probe1, probe2, probe3, probe4, probe5, 
   probe6, probe7, probe8, probe9, probe10, probe11, probe12, probe13, probe14, probe15, probe16, probe17, 
-  probe18)
-/* synthesis syn_black_box black_box_pad_pin="probe0[11:0],probe1[0:0],probe2[0:0],probe3[0:0],probe4[0:0],probe5[0:0],probe6[0:0],probe7[3:0],probe8[5:0],probe9[5:0],probe10[0:0],probe11[0:0],probe12[0:0],probe13[0:0],probe14[0:0],probe15[11:0],probe16[11:0],probe17[11:0],probe18[11:0]" */
+  probe18, probe19, probe20)
+/* synthesis syn_black_box black_box_pad_pin="probe0[11:0],probe1[0:0],probe2[0:0],probe3[0:0],probe4[0:0],probe5[0:0],probe6[0:0],probe7[3:0],probe8[5:0],probe9[5:0],probe10[0:0],probe11[0:0],probe12[0:0],probe13[0:0],probe14[0:0],probe15[11:0],probe16[11:0],probe17[11:0],probe18[11:0],probe19[11:0],probe20[11:0]" */
 /* synthesis syn_force_seq_prim="clk" */;
   input clk /* synthesis syn_isclock = 1 */;
   input [11:0]probe0;
@@ -40,4 +40,6 @@ module ILA(clk, probe0, probe1, probe2, probe3, probe4, probe5,
   input [11:0]probe16;
   input [11:0]probe17;
   input [11:0]probe18;
+  input [11:0]probe19;
+  input [11:0]probe20;
 endmodule

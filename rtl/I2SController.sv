@@ -8,13 +8,10 @@
  *
  * The supported sampling frequency can be configured using the `clockConfig` port. The equation
  * below can be used to calculate the sampling frequency.
- * TODO EDIT
- * F_sclk = F_clk/((clockConfig+1)*2)
- * Fs = F_sclk/64
+ * F_mclk = F_sys/((clockConfig+1) * 2)
+ * F_lrck = F_fs = F_mclk/256
  *
- * Assuming a system clock of 32MHz, and a config width of 6 bits, the range of the sampling
- * frequency is 7936kHz to 500kHz. Though it is important to remember that the sampling frequency
- * range of the ADC and DAC ICs are 4kHz-100kHz
+ * The adc is right shifted to fit to DataWidth, and the dac is Left shifted to 24 bits
  */
 
 `timescale 1ns / 1ps
@@ -24,13 +21,11 @@ module I2SController #(
     parameter int DataWidth = 12,  // Number of bits for ADC and DAC data
 
     localparam int SerialDataWidth = 24,  // Number of bits to and from the I2S2 port per sample
-    localparam int ScaleWidth = $clog2(SerialDataWidth + DataWidth),
 
     localparam int LrckMultiplier = 64,  // lrck is 64x times slower than sclk
     localparam int LrckCounterMax = (LrckMultiplier / 2) - 1,
-    localparam int LrckCounterWidth = $clog2(LrckCounterMax),
+    localparam int LrckCounterWidth = $clog2(LrckCounterMax)
 
-    localparam int AdditionalShiftCounterWidth = $clog2(DataWidth)
 ) (
     input wire clk,
     input wire reset,
@@ -38,13 +33,11 @@ module I2SController #(
     input wire [ClockConfigWidth-1:0] clockConfig,
 
     // ADC data port
-    input wire [ScaleWidth-1:0] adcScale,
-    output logic [DataWidth-1:0] adcData,
+    output logic signed [DataWidth-1:0] adcData,
     output logic adcDataValid,
 
     // DAC data port
-    input wire [ScaleWidth-1:0] dacScale,
-    input wire [DataWidth-1:0] dacData,
+    input wire signed [DataWidth-1:0] dacData,
     input wire dacDataValid,
 
     // I2S2 port
@@ -57,16 +50,13 @@ module I2SController #(
   typedef enum logic [1:0] {
     IDLE_S,
     CLEAR_S,
-    SHIFT_S,
-    SHIFT_MORE_S
+    SHIFT_S
   } state_e;
 
   // Clock divider counters
   logic [ClockConfigWidth-1:0] mclkCounter;
   logic sclkCounter;  // mclk div 4
   logic [4:0] lrckCounter;  // sclk div 64
-
-  logic [AdditionalShiftCounterWidth-1:0] additionalShiftCounter;
 
   // Pulse signals
   wire mclkTransition = mclkCounter == clockConfig;
@@ -84,15 +74,7 @@ module I2SController #(
   state_e currentState;
   state_e nextState;
 
-  wire [ScaleWidth-1:0] adcScaleBounded = adcScale > SerialDataWidth + DataWidth ? 0 : adcScale;
-  wire [ScaleWidth-1:0] dacScaleBounded = dacScale > SerialDataWidth + DataWidth ? 0 : dacScale;
-
   logic [DataWidth-1:0] dacDataQ;  // Registered data for dac output
-  // Data should be sourced from dacDataQ when shifting
-  wire dacDataIndexValid =
-    signed'((LrckCounterWidth + 1)'(lrckCounter))
-      > signed'(SerialDataWidth) - signed'((ScaleWidth + 1)'(dacScaleBounded+1))
-    && lrckCounter < SerialDataWidth + DataWidth - dacScaleBounded;
 
   // Generate clocks and pulses
   always_ff @(posedge clk) begin : ClockGeneration
@@ -162,21 +144,9 @@ module I2SController #(
 
         SHIFT_S: begin
           if (lrckCounter == SerialDataWidth + 1) begin
-            if (adcScaleBounded > lrckCounter - 1) begin
-              nextState = SHIFT_MORE_S;
-            end else begin
-              nextState = IDLE_S;
-            end
-          end else begin
-            nextState = SHIFT_S;
-          end
-        end
-
-        SHIFT_MORE_S: begin
-          if (additionalShiftCounter == (adcScaleBounded - SerialDataWidth - 1)) begin
             nextState = IDLE_S;
           end else begin
-            nextState = SHIFT_MORE_S;
+            nextState = SHIFT_S;
           end
         end
       endcase
@@ -190,12 +160,10 @@ module I2SController #(
   always_ff @(posedge clk) begin : AdcExecution
     if (reset) begin
       adcData <= 0;
-      additionalShiftCounter <= 0;
     end else begin
       unique case (currentState)
         IDLE_S: begin
           adcDataValid <= 0;
-          additionalShiftCounter <= 0;
         end
 
         CLEAR_S: begin
@@ -203,19 +171,9 @@ module I2SController #(
         end
 
         SHIFT_S: begin
-          if (samplePulse && lrckCounter <= adcScaleBounded) begin
+          if (samplePulse && lrckCounter <= SerialDataWidth - DataWidth) begin
             adcData <= {adcData[DataWidth-2:0], adcQ};
           end
-
-          if (nextState == IDLE_S) begin
-            adcDataValid <= 1;
-          end
-        end
-
-        SHIFT_MORE_S: begin
-          // Shift in extra zeros to scale up
-          additionalShiftCounter <= additionalShiftCounter + 1;
-          adcData <= {adcData[DataWidth-2:0], 1'b0};
 
           if (nextState == IDLE_S) begin
             adcDataValid <= 1;
@@ -229,9 +187,9 @@ module I2SController #(
     if (reset) begin
       dac <= 0;
     end else begin
-      unique case (currentState)
+      case (currentState)
         IDLE_S: begin
-          dac <= 0;
+          dac <= 1'b0;
         end
 
         CLEAR_S: begin
@@ -239,17 +197,14 @@ module I2SController #(
 
         SHIFT_S: begin
           if (dacTransition) begin
-            if (dacDataIndexValid) begin
-              dac <= dacDataQ[SerialDataWidth-lrckCounter+DataWidth-dacScaleBounded-1];
+            if (lrckCounter < DataWidth) begin
+              dac <= dacDataQ[DataWidth-lrckCounter-1];
             end else begin
-              dac <= 0;
+              dac <= 1'b0;
             end
           end
         end
-
-        SHIFT_MORE_S: begin
-          dac <= 0;
-        end
+        default: dac <= 1'b0;
       endcase
     end
   end
@@ -258,7 +213,7 @@ module I2SController #(
     if (reset) begin
       dacDataQ <= 0;
     end else begin
-      if (dacDataValid && currentState != SHIFT_S && !dacDataIndexValid) begin
+      if (dacDataValid && currentState != SHIFT_S) begin
         dacDataQ <= dacData;
       end
     end

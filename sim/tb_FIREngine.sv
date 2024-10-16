@@ -26,7 +26,7 @@ class I2SSlaveModel;
     i2s.adc = 1'b0;
   endfunction  //new()
 
-  task static SendAdc(input logic [23:0] data);
+  task static SendAdc(input logic signed [23:0] data);
     @(posedge i2s.lrck);  // Only send data on high lrck
 
     for (int i = 0; i < 24; i++) begin
@@ -35,7 +35,7 @@ class I2SSlaveModel;
     end
   endtask
 
-  task static ReadDac(output logic [23:0] data);
+  task static ReadDac(output logic signed [23:0] data);
     @(posedge i2s.lrck);  // Only read data on high lrck
     @(posedge i2s.sclk);  // Skip first sample pulse
 
@@ -88,12 +88,12 @@ class SPIMasterModel;
 endclass
 
 module tb_FIREngine ();
-  localparam integer NTaps = 8;
-  localparam integer NCoeff = NTaps / 2;
+  localparam integer NTaps = 9;
+  localparam integer NCoeff = (NTaps + 1) / 2;
 
-  logic [23:0] expFilterOutput;
-  logic [23:0] adcData;
-  logic [23:0] dacData;
+  logic signed [11:0] expFilterOutput;
+  logic signed [23:0] adcData;
+  logic signed [23:0] dacData;
 
   i2s_if i2s ();
   spi_if spi ();
@@ -101,17 +101,18 @@ module tb_FIREngine ();
   SPIMasterModel spiModel;
 
   // Configuration
-  logic [5:0] dacScale;
-  logic [5:0] adcScale;
+  logic symCoeffs;
   logic [3:0] clockConfig;
-  logic [11:0] coeffs[NCoeff];
-  logic configData[6+6+4+(12*NCoeff)];
+  logic signed [11:0] coeffs[NCoeff];
+  logic configData[1+4+(12*NCoeff)];
 
   // DUT signals
   logic clk;
   logic reset;
 
-  FIREngine dut (
+  FIREngine #(
+      .NTaps(NTaps)
+  ) dut (
       .clk(clk),
       .reset(reset),
       .mclk(i2s.mclk),
@@ -129,17 +130,32 @@ module tb_FIREngine ();
   endtask  // static
 
   task static ComputeFilterResponse(input logic [11:0] in, output logic [11:0] out);
-    static logic [11:0] filterSamples[NTaps] = '{NTaps{12'd0}};
-    logic [26:0] acc;  // UFix<16,11> TODO: SIGN
+    static logic signed [11:0] filterSamples[NTaps] = '{NTaps{12'd0}};
+    logic signed [24:0] acc;
+
+    logic signed [12:0] outInt;
 
     begin
       filterSamples = {in, filterSamples[0:NTaps-2]};
       acc = 0;
-      for (int i = 0; i < NCoeff; i++) begin
-        acc += (filterSamples[i] + filterSamples[NTaps-1-i]) * coeffs[i];
+      for (int i = 0; i < NCoeff - 1; i++) begin
+        if (symCoeffs) begin
+          acc += (filterSamples[i] + filterSamples[NTaps-1-i]) * coeffs[i];
+        end else begin
+          acc += (filterSamples[i] - filterSamples[NTaps-1-i]) * coeffs[i];
+        end
       end
+      acc += coeffs[NCoeff-1] * filterSamples[NTaps/2];
 
-      out = acc >> 11;
+      // Convert to output format
+      outInt = acc >>> 11;
+      if (outInt > signed'(13'h7ff)) begin
+        out = 12'h7ff;
+      end else if (outInt < signed'(12'h800)) begin
+        out = signed'(12'h800);
+      end else begin
+        out = outInt[11:0];
+      end
     end
 
   endtask  // static
@@ -171,21 +187,16 @@ module tb_FIREngine ();
 
     // Test configuration
     $display("Test configuration");
-    dacScale = $urandom();
-    adcScale = $urandom();
+    symCoeffs   = 1'b1;
     clockConfig = $urandom();
     for (int i = 0; i < NCoeff; i++) begin
-      coeffs[i] = $urandom();
+      coeffs[i] = $urandom() & 12'h7ff;
     end
-    configData = {>>{{<<12{coeffs}}, dacScale, adcScale, clockConfig}};
+    configData = {>>{{<<12{coeffs}}, symCoeffs, clockConfig}};
     spiModel.SendData(configData);
 
     assert (clockConfig == dut.clockConfig)
     else $error("clockConfig incorrect, should be %h not %h", clockConfig, dut.clockConfig);
-    assert (adcScale == dut.adcScale)
-    else $error("adcScale incorrect, should be %h not %h", adcScale, dut.adcScale);
-    assert (dacScale == dut.dacScale)
-    else $error("dacScale incorrect, should be %h not %h", dacScale, dut.dacScale);
     for (int i = 0; i < NCoeff; i++) begin
       assert (coeffs[i] == dut.firInst.coeffs[i])
       else
@@ -193,19 +204,26 @@ module tb_FIREngine ();
     end
 
     $display("Test impulse response");
-    dut.configStore.shiftReg = {6'd12, 6'd24, 4'd0};
+    symCoeffs = 1'b1;
+    clockConfig = 4'd0;
+    dut.configStore.shiftReg = {symCoeffs, clockConfig};
     dut.firInst.samples = '{NTaps{12'd0}};
 
-    adcData = 1'b1 << 11;
+    adcData = 1'b1 << 22;
     i2sModel.SendAdc(adcData);
     for (int i = 0; i < NTaps + 1; i++) begin
-      ComputeFilterResponse(i == 0 ? adcData : 0, expFilterOutput);
+      ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
       i2sModel.ReadDac(dacData);
 
-      assert (dacData == expFilterOutput)
+      assert (dacData == {expFilterOutput, 12'b0})
       else
         $error(
-            "Impulse response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData
+            "Impulse response incorrect, at %d should be %h not %h",
+            i,
+            {
+              expFilterOutput, 12'b0
+            },
+            dacData
         );
     end
 
@@ -215,7 +233,7 @@ module tb_FIREngine ();
     for (int i = 0; i < NTaps * 2; i++) begin
       fork
         begin
-          ComputeFilterResponse(adcData, expFilterOutput);
+          ComputeFilterResponse(adcData >>> 12, expFilterOutput);
           adcData = $urandom();
           i2sModel.SendAdc(adcData);
         end
@@ -224,14 +242,17 @@ module tb_FIREngine ();
         end
       join
 
-      assert (dacData == expFilterOutput)
-      else $error("Response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData);
+      assert (dacData == {expFilterOutput, 12'b0})
+      else
+        $error(
+            "Response incorrect, at %d should be %h not %h", i, {expFilterOutput, 12'b0}, dacData
+        );
     end
 
     for (int i = 0; i < NTaps + 1; i++) begin
       fork
         begin
-          ComputeFilterResponse(adcData, expFilterOutput);
+          ComputeFilterResponse(adcData >>> 12, expFilterOutput);
           adcData = 0;
           i2sModel.SendAdc(0);
         end
@@ -240,11 +261,40 @@ module tb_FIREngine ();
         end
       join
 
-      assert (dacData == expFilterOutput)
+      assert (dacData == {expFilterOutput, 12'b0})
       else
-        $error("Fading response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData);
+        $error(
+            "Fading response incorrect, at %d should be %h not %h",
+            i,
+            {
+              expFilterOutput, 12'b0
+            },
+            dacData
+        );
     end
 
+    $display("Test anti-symmetric impulse");
+    symCoeffs = 1'b0;
+    dut.configStore.shiftReg = {symCoeffs, clockConfig};
+    dut.firInst.samples = '{NTaps{12'd0}};
+
+    adcData = 1'b1 << 11;
+    i2sModel.SendAdc(adcData);
+    for (int i = 0; i < NTaps + 1; i++) begin
+      ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
+      i2sModel.ReadDac(dacData);
+
+      assert (dacData == {expFilterOutput, 12'b0})
+      else
+        $error(
+            "Anti-Sym, Impulse response incorrect, at %d should be %h not %h",
+            i,
+            {
+              expFilterOutput, 12'b0
+            },
+            dacData
+        );
+    end
 
     WaitClock(16);
     $display("Testing complete.");
