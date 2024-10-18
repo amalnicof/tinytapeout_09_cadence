@@ -199,7 +199,7 @@ module fir #(
     ySignedInt = accQ >>> (DataWidth - 1);
     yUnsignedInt = ySignedInt + ((1 << DataWidth) / 2);
     yUnsignedIntPos = yUnsignedInt < 0 ? 0 : yUnsignedInt;
-    y = unsigned'(yUnsignedIntPos) & ((1 << DataWidth) - 1);
+    y = unsigned'(yUnsignedIntPos>>1) & ((1 << DataWidth) - 1);
   end
 
   // STATE MACHINE
