@@ -37,6 +37,7 @@ module FIREngine #(
   wire [ClockConfigWidth-1:0] clockConfig;
   wire [ScaleWidth-1:0] adcScale;
   wire [ScaleWidth-1:0] dacScale;
+  wire symCoeffs;
 
   // Data signals
   wire [DataWidth-1:0] adcData;
@@ -75,6 +76,7 @@ module FIREngine #(
       .start(adcDataValid),
       .lock(!cs),  // Lock when spi is writing data
       .done(firDataValid),
+      .symCoeffs(symCoeffs),
       .coeff_load_in(serialEn),
       .coeff_in(serialFir),
       .x(adcData),
@@ -102,6 +104,7 @@ module FIREngine #(
       .serialOut(serialFir),
       .clockConfig(clockConfig),
       .adcScale(adcScale),
-      .dacScale(dacScale)
+      .dacScale(dacScale),
+      .symCoeffs(symCoeffs)
   );
 endmodule

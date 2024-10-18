@@ -101,11 +101,12 @@ module tb_FIREngine ();
   SPIMasterModel spiModel;
 
   // Configuration
+  logic symCoeffs;
   logic [5:0] dacScale;
   logic [5:0] adcScale;
   logic [3:0] clockConfig;
   logic [11:0] coeffs[NCoeff];
-  logic configData[6+6+4+(12*NCoeff)];
+  logic configData[1+6+6+4+(12*NCoeff)];
 
   // DUT signals
   logic clk;
@@ -134,15 +135,28 @@ module tb_FIREngine ();
     static logic [11:0] filterSamples[NTaps] = '{NTaps{12'd0}};
     logic [26:0] acc;  // UFix<16,11> TODO: SIGN
 
+    logic [12:0] signedInt;
+    logic [12:0] unsignedInt;
+    logic [12:0] unsignedIntPos;
+
     begin
       filterSamples = {in, filterSamples[0:NTaps-2]};
       acc = 0;
       for (int i = 0; i < NCoeff - 1; i++) begin
-        acc += (filterSamples[i] + filterSamples[NTaps-1-i]) * coeffs[i];
+        if (symCoeffs) begin
+          acc += (filterSamples[i] + filterSamples[NTaps-1-i]) * coeffs[i];
+        end else begin
+          acc += (filterSamples[i] - filterSamples[NTaps-1-i]) * coeffs[i];
+        end
       end
       acc += coeffs[NCoeff-1] * filterSamples[NTaps/2];
 
-      out = acc >> 11;
+      // Convert to output format
+      signedInt   = acc >>> 11;
+      unsignedInt = signedInt + 2048;
+      if (unsignedInt < 0) $display("Got neg output %d", unsignedInt);
+      unsignedIntPos = unsignedInt < 0 ? 0 : unsignedInt;
+      out = unsigned'(unsignedIntPos) & 12'hfff;
     end
 
   endtask  // static
@@ -174,13 +188,14 @@ module tb_FIREngine ();
 
     // Test configuration
     $display("Test configuration");
+    symCoeffs = 1'b1;
     dacScale = $urandom();
     adcScale = $urandom();
     clockConfig = $urandom();
     for (int i = 0; i < NCoeff; i++) begin
-      coeffs[i] = $urandom();
+      coeffs[i] = $urandom() & 12'h7ff;
     end
-    configData = {>>{{<<12{coeffs}}, dacScale, adcScale, clockConfig}};
+    configData = {>>{{<<12{coeffs}}, symCoeffs, dacScale, adcScale, clockConfig}};
     spiModel.SendData(configData);
 
     assert (clockConfig == dut.clockConfig)
@@ -196,7 +211,11 @@ module tb_FIREngine ();
     end
 
     $display("Test impulse response");
-    dut.configStore.shiftReg = {6'd12, 6'd24, 4'd0};
+    symCoeffs = 1'b1;
+    dacScale = 6'd12;
+    adcScale = 6'd24;
+    clockConfig = 4'd0;
+    dut.configStore.shiftReg = {symCoeffs, dacScale, adcScale, clockConfig};
     dut.firInst.samples = '{NTaps{12'd0}};
 
     adcData = 1'b1 << 11;
@@ -248,6 +267,26 @@ module tb_FIREngine ();
         $error("Fading response incorrect, at %d should be %h not %h", i, expFilterOutput, dacData);
     end
 
+    $display("Test anti-symmetric impulse");
+    symCoeffs = 1'b0;
+    dut.configStore.shiftReg = {symCoeffs, dacScale, adcScale, clockConfig};
+    dut.firInst.samples = '{NTaps{12'd0}};
+
+    adcData = 1'b1 << 11;
+    i2sModel.SendAdc(adcData);
+    for (int i = 0; i < NTaps + 1; i++) begin
+      ComputeFilterResponse(i == 0 ? adcData : 0, expFilterOutput);
+      i2sModel.ReadDac(dacData);
+
+      assert (dacData == expFilterOutput)
+      else
+        $error(
+            "Anti-Sym, Impulse response incorrect, at %d should be %h not %h",
+            i,
+            expFilterOutput,
+            dacData
+        );
+    end
 
     WaitClock(16);
     $display("Testing complete.");

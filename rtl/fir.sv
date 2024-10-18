@@ -15,15 +15,17 @@ module fir #(
     parameter integer NTaps = 9,
 
     localparam integer NCoeffs = (NTaps + 1) / 2,
-    localparam integer AccumulatorWidth = $clog2(
-        ((1 << DataWidth) - 1) * NTaps
-    ) + DataWidth - 1 + 1  // max int + frac + sign
+
+    // The sum of coeff must be in [-1,1]
+    // int + extra int bit + frac bits + sign
+    localparam integer AccumulatorWidth = DataWidth + 1 + DataWidth - 1 + 1
 ) (
     input wire clk,
     input wire rst,
     input wire start,
     input wire lock,  // lock signal to stop coefficient shifting
     output logic done,  // Done pulse when output data is valid
+    input wire symCoeffs,  // If the coefficients are symmetric as compared to anti-symmetric
     input wire coeff_load_in,
     input wire coeff_in,  // Coefficients, SFix<1,11>
     input wire [DataWidth-1:0] x,  // Input samples UFix<12,0>
@@ -79,7 +81,7 @@ module fir #(
   // coefficients LSFR
   // When loading coefficients, it becomes a bit lsfr, where the new bit is shifted from the LSB
   // During the MAC operation, it shifts by DataWidth downwards
-  reg [DataWidth-1:0] coeffs[NCoeffs];
+  logic signed [DataWidth-1:0] coeffs[NCoeffs];
   always_ff @(posedge clk) begin
     if (rst) begin
       // reset
@@ -137,9 +139,9 @@ module fir #(
 
   // MAC: Multiply and Accumulate
   logic [1:0] sel;
-  logic [AccumulatorWidth-1:0] mux_out;
-  logic [AccumulatorWidth-1:0] acc_in;
-  logic [AccumulatorWidth-1:0] accQ;
+  logic signed [AccumulatorWidth-1:0] mux_out;
+  logic signed [AccumulatorWidth-1:0] acc_in;
+  logic signed [AccumulatorWidth-1:0] accQ;
   always_comb begin
     // create select signal through filter symmetry
     if (sample_cnt == (NTaps / 2)) begin
@@ -147,14 +149,25 @@ module fir #(
       sel = samples[NTaps/2][bit_cnt];
     end else begin
       // Use shifted samples
-      sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
+      if (symCoeffs) begin
+        sel = samples[0][bit_cnt] + samples[NTaps-1][bit_cnt];
+      end else begin
+        if (!samples[0][bit_cnt] && samples[NTaps-1][bit_cnt]) begin
+          // Should subtract coefficient
+          sel = 2'b11;
+        end else begin
+          // results in 0, 1, or 2
+          sel = samples[0][bit_cnt] - samples[NTaps-1][bit_cnt];
+        end
+      end
     end
 
     // MUX
     case (sel)
       2'b00:   mux_out = 'd0;
-      2'b01:   mux_out = coeffs[0] << bit_cnt;
-      2'b10:   mux_out = coeffs[0] << (bit_cnt + 1);
+      2'b01:   mux_out = AccumulatorWidth'(coeffs[0] << bit_cnt);
+      2'b10:   mux_out = AccumulatorWidth'(coeffs[0] << (bit_cnt + 1));
+      2'b11:   mux_out = AccumulatorWidth'(-(coeffs[0] << bit_cnt));
       default: mux_out = 'd0;
     endcase
     acc_in = accQ + mux_out;
@@ -174,9 +187,19 @@ module fir #(
   end
 
   // Output value
+  logic [DataWidth:0] ySignedInt;
+  logic [DataWidth:0] yUnsignedInt;
+  logic [DataWidth:0] yUnsignedIntPos;
   always_comb begin
-    // Convert from SFix to UFix, TODO IMP SIGN
-    y = (accQ >> (DataWidth - 1)) & 12'hfff;  // Remove fractional bits, truncate to DataWidth
+    // Convert from SFix to UFix
+    // Remove fractional bits
+    // Scale range from signed to unsigned
+    // Negative value guard
+    // truncate to DataWidth
+    ySignedInt = accQ >>> (DataWidth - 1);
+    yUnsignedInt = ySignedInt + ((1 << DataWidth) / 2);
+    yUnsignedIntPos = yUnsignedInt < 0 ? 0 : yUnsignedInt;
+    y = unsigned'(yUnsignedIntPos) & ((1 << DataWidth) - 1);
   end
 
   // STATE MACHINE
