@@ -23,20 +23,19 @@ class I2S2SlaveModel;
 
   function new(virtual interface i2s2_if.Slave s);
     i2s2 = s;
+    i2s2.adc = 0;
   endfunction  //new()
 
-  task static SendAdc(input logic [23:0] data);
+  task static SendAdc(input logic signed [23:0] data);
     @(posedge i2s2.lrck);  // Only send data on high lrck
 
     for (int i = 0; i < 24; i++) begin
       @(negedge i2s2.sclk);
       i2s2.adc = data[23-i];
     end
-
-    @(negedge i2s2.lrck);
   endtask
 
-  task static ReadDac(output logic [23:0] data);
+  task static ReadDac(output logic signed [23:0] data);
     @(posedge i2s2.lrck);  // Only read data on high lrck
     @(posedge i2s2.sclk);  // Skip first sample pulse
 
@@ -44,8 +43,6 @@ class I2S2SlaveModel;
       @(posedge i2s2.sclk);
       data = {data[22:0], i2s2.dac};
     end
-
-    @(negedge i2s2.lrck);
   endtask
 endclass  //I2S2SlaveModel
 
@@ -54,8 +51,8 @@ module tb_I2SController ();
   realtime timeStart;  // Time in ps
   realtime timeEnd;  // Time in ps
 
-  logic [35:0] comparisonBuffer;
-  logic [23:0] recvDacData;
+  logic signed [23:0] sentAdcData;
+  logic signed [23:0] recvDacData;
 
   i2s2_if i2s2If ();
   I2S2SlaveModel model;
@@ -66,22 +63,18 @@ module tb_I2SController ();
 
   logic [3:0] clockConfig;
 
-  logic [5:0] adcScale;
-  wire [11:0] adcData;
+  wire signed [11:0] adcData;
   wire adcValidPulse;
 
-  logic [5:0] dacScale;
-  logic [11:0] dacData;
+  logic signed [11:0] dacData;
   logic dacDataValid;
 
   I2SController i2sController (
       .clk(clk),
       .reset(reset),
       .clockConfig(clockConfig),
-      .adcScale(adcScale),
       .adcData(adcData),
       .adcDataValid(adcValidPulse),
-      .dacScale(dacScale),
       .dacData(dacData),
       .dacDataValid(dacDataValid),
       .mclk(i2s2If.mclk),
@@ -115,11 +108,8 @@ module tb_I2SController ();
     model = new(i2s2If.Slave);
 
     clockConfig = 0;
-    adcScale = 0;
-    dacScale = 0;
     dacData = 0;
     dacDataValid = 0;
-    i2s2If.adc = 0;
     reset = 1;
     WaitClock(2);
 
@@ -160,85 +150,45 @@ module tb_I2SController ();
     else $error("lrck period incorrect");
 
     // Test ADC scaling
-    $display("Testing ADC scaling");
+    $display("Testing ADC");
     @(negedge i2s2If.lrck);
     clockConfig = 4'b0;  // Set clock config to fastest possible for sim purposes
     WaitClock(1);
 
-    comparisonBuffer = 36'h000ffffff;
-    for (int i = 0; i <= 36; i++) begin
-      adcScale = i;
-
+    for (int i = 0; i <= 24; i++) begin
+      std::randomize(sentAdcData);
       fork
-        model.SendAdc(24'hffffff);
+        model.SendAdc(sentAdcData);
         begin
           @(posedge adcValidPulse);
           @(posedge clk);
-          assert (adcData == comparisonBuffer[35:24])
-          else
-            $error(
-                "ADC Scaling Failure: adcScale=%d, should be %h not %h",
-                i,
-                comparisonBuffer[35:24],
-                adcData
-            );
-        end
-      join
-
-      comparisonBuffer = {comparisonBuffer[34:0], 1'b0};
-    end
-
-    $display("Testing invalid ADC scale");
-    for (int i = 37; i < ((1 << 6) - 1); i++) begin
-      adcScale = i;
-
-      fork
-        model.SendAdc(24'hffffff);
-        begin
-          @(posedge adcValidPulse);
-          @(posedge clk);
-          assert (adcData == 0)
-          else
-            $error("ADC Invalid Scaling Failure: adcScale=%d, should be %h not %h", i, 0, adcData);
+          assert (adcData == sentAdcData >>> 12)
+          else $error("ADC Failure: should be %h not %h", i, sentAdcData >>> 12, adcData);
         end
       join
     end
 
     // Test DAC scaling
-    $display("Testing DAC scale");
-    comparisonBuffer = 36'h000000fff;
-    @(negedge i2s2If.lrck);
-    dacData = 12'hfff;
-    dacDataValid = 1;
-    WaitClock(2);
-    dacData = 0;
-    dacDataValid = 0;
-
-    for (int i = 0; i < 36; i++) begin
-      dacScale = i;
+    $display("Testing DAC");
+    for (int i = 0; i < 24; i++) begin
+      @(negedge i2s2If.lrck);
+      std::randomize(dacData);
+      dacDataValid = 1'b1;
+      WaitClock(2);
+      dacDataValid = 1'b0;
+      WaitClock(1);
 
       model.ReadDac(recvDacData);
-      assert (recvDacData == comparisonBuffer[35:12])
+      assert (recvDacData == {dacData, 12'b0})
       else
         $error(
             "DAC Scaling Failure: dacScale=%d, should be %h not %h",
             i,
-            comparisonBuffer[35:12],
+            {
+              dacData, 12'b0
+            },
             recvDacData
         );
-
-      comparisonBuffer = {comparisonBuffer[34:0], 1'b0};
-    end
-
-    $display("Testing invalid DAC scale");
-    comparisonBuffer = 36'h000000fff;
-    for (int i = 37; i < ((1 << 6) - 1); i++) begin
-      dacScale = i;
-
-      model.ReadDac(recvDacData);
-      assert (recvDacData == comparisonBuffer[35:12])
-      else
-        $error("DAC Invalid Scaling Failure: dacScale=%d, should be %h not %h", i, 0, recvDacData);
     end
 
     WaitClock(16);

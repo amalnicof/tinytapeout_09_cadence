@@ -18,7 +18,10 @@ module fir #(
 
     // The sum of coeff must be in [-1,1]
     // int + extra int bit + frac bits + sign
-    localparam integer AccumulatorWidth = DataWidth + 1 + DataWidth - 1 + 1
+    localparam integer AccumulatorWidth = DataWidth + 1 + DataWidth - 1 + 1,
+    localparam logic signed [DataWidth-1:0] DataMax = (1 << (DataWidth - 1)) - 1,
+    localparam logic signed [DataWidth-1:0] DataMin = 1 << (DataWidth - 1)
+
 ) (
     input wire clk,
     input wire rst,
@@ -28,8 +31,8 @@ module fir #(
     input wire symCoeffs,  // If the coefficients are symmetric as compared to anti-symmetric
     input wire coeff_load_in,
     input wire coeff_in,  // Coefficients, SFix<1,11>
-    input wire [DataWidth-1:0] x,  // Input samples UFix<12,0>
-    output logic [DataWidth-1:0] y  // Output samples UFix<12,0>
+    input wire signed [DataWidth-1:0] x,  // Input samples SFix<12,0>
+    output logic signed [DataWidth-1:0] y  // Output samples SFix<12,0>
 );
   generate
     if (NTaps % 2 == 0) begin : g_ParameterVerification_NTaps
@@ -170,7 +173,13 @@ module fir #(
       2'b11:   mux_out = AccumulatorWidth'(-(coeffs[0] << bit_cnt));
       default: mux_out = 'd0;
     endcase
-    acc_in = accQ + mux_out;
+
+    if (bit_cnt == 11) begin
+      // Sign should be subtraction
+      acc_in = accQ - mux_out;
+    end else begin
+      acc_in = accQ + mux_out;
+    end
   end
 
   // accumulator register
@@ -187,19 +196,18 @@ module fir #(
   end
 
   // Output value
-  logic [DataWidth:0] ySignedInt;
-  logic [DataWidth:0] yUnsignedInt;
-  logic [DataWidth:0] yUnsignedIntPos;
+  logic signed [DataWidth:0] yInt;
   always_comb begin
-    // Convert from SFix to UFix
     // Remove fractional bits
-    // Scale range from signed to unsigned
-    // Negative value guard
-    // truncate to DataWidth
-    ySignedInt = accQ >>> (DataWidth - 1);
-    yUnsignedInt = ySignedInt + ((1 << DataWidth) / 2);
-    yUnsignedIntPos = yUnsignedInt < 0 ? 0 : yUnsignedInt;
-    y = unsigned'(yUnsignedIntPos>>1) & ((1 << DataWidth) - 1);
+    // truncate to DataWidth, saturating
+    yInt = accQ >>> (DataWidth - 1);
+    if (yInt > DataMax) begin
+      y = DataMax;
+    end else if (yInt < DataMin) begin
+      y = DataMin;
+    end else begin
+      y = yInt[DataWidth-1:0];
+    end
   end
 
   // STATE MACHINE

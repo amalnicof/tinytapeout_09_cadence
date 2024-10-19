@@ -13,8 +13,8 @@ syn:
 	genus -f genus_script.tcl -no_gui
 
 syn_fir_engine:
-	BASENAME=$(sv) \
-	CLOCKPERIOD=$(clk) \
+	BASENAME=FIREngine \
+	CLOCKPERIOD=31.25 \
 	TIMINGPATH=/opt/skywater/libraries/sky130_fd_sc_hd/latest/timing/ \
 	TIMINGLIB=sky130_fd_sc_hd__ss_n40C_1v76.lib \
 	VERILOG="ConfigStore.sv fir.sv FIREngine.sv I2SController.sv SPISlave.sv" \
