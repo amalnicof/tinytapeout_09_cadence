@@ -12,7 +12,6 @@ class FixedPointKwargs(TypedDict):
 
 
 CLOCK_CONFIG_WIDTH = 4
-SCALE_WIDTH = 6
 COEFF_WIDTH = 12
 SYM_COEFFS_WIDTH = 1
 

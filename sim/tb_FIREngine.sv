@@ -176,11 +176,11 @@ module tb_FIREngine ();
     WaitClock(2);
   endtask  //static
 
-  // Generate 32MHz clock
+  // Generate 50MHz clock
   initial begin
     clk = 0;
     forever begin
-      #15.625 clk = ~clk;
+      #10 clk = ~clk;
     end
   end
 
@@ -222,9 +222,9 @@ module tb_FIREngine ();
     ResetCore();
 
     // Set config to slowest
-    // MCLK 1MHz
-    // SCLK 250kHz
-    // LRCK 3906.25kHz
+    // MCLK 1.56250MHz
+    // SCLK 390.625kHz
+    // LRCK 6.10351kHz
     clockConfig = 4'd15;
     configData  = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
     spiModel.SendData(configData);
@@ -237,21 +237,21 @@ module tb_FIREngine ();
     timeStart = $realtime();
     @(posedge i2s.mclk);
     timeEnd = $realtime();
-    assert ((timeEnd - timeStart) == 1000000ps)
+    assert ((timeEnd - timeStart) == 640ns)
     else $error("mclk period incorrect");
 
     @(posedge i2s.sclk);
     timeStart = $realtime();
     @(posedge i2s.sclk);
     timeEnd = $realtime();
-    assert ((timeEnd - timeStart) == 4000000ps)
+    assert ((timeEnd - timeStart) == 2560ns)
     else $error("sclk period incorrect");
 
     @(posedge i2s.lrck);
     timeStart = $realtime();
     @(posedge i2s.lrck);
     timeEnd = $realtime();
-    assert ((timeEnd - timeStart) == 256000000ps)
+    assert ((timeEnd - timeStart) == 163840ns)
     else $error("lrck period incorrect");
 
     /**

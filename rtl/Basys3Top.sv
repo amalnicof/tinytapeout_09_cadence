@@ -60,19 +60,17 @@ module Basys3Top (
       .probe5(lrck),
       .probe6(firEngine.adcDataValid),
       .probe7(firEngine.clockConfig),
-      .probe8(0),
-      .probe9(0),
-      .probe10(spiClk),
-      .probe11(mosi),
-      .probe12(cs),
-      .probe13(firEngine.serialEn),
-      .probe14(firEngine.serial),
-      .probe15(firEngine.firInst.coeffs[0]),
-      .probe16(firEngine.firInst.coeffs[1]),
-      .probe17(firEngine.firInst.coeffs[2]),
-      .probe18(firEngine.firInst.coeffs[3]),
-      .probe19(firEngine.firInst.coeffs[4]),
-      .probe20(firEngine.firData)
+      .probe8 (spiClk),
+      .probe9 (mosi),
+      .probe10(cs),
+      .probe11(firEngine.serialEn),
+      .probe12(firEngine.serial),
+      .probe13(firEngine.firInst.coeffs[0]),
+      .probe14(firEngine.firInst.coeffs[1]),
+      .probe15(firEngine.firInst.coeffs[2]),
+      .probe16(firEngine.firInst.coeffs[3]),
+      .probe17(firEngine.firInst.coeffs[4]),
+      .probe18(firEngine.firData)
   );
 
   assign reset   = !locked;
