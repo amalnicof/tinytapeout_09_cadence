@@ -90,10 +90,20 @@ endclass
 module tb_FIREngine ();
   localparam integer NTaps = 9;
   localparam integer NCoeff = (NTaps + 1) / 2;
+  localparam integer DataWidth = 12;
 
-  logic signed [11:0] expFilterOutput;
+  // int + extra int bit + frac bits + sign
+  localparam integer AccumulatorWidth = DataWidth + 1 + DataWidth - 1 + 1;
+  localparam logic signed [DataWidth-1:0] DataMax = (1 << (DataWidth - 1)) - 1;
+  localparam logic signed [DataWidth-1:0] DataMin = 1 << (DataWidth - 1);
+
+  logic signed [DataWidth-1:0] expFilterOutput;
   logic signed [23:0] adcData;
   logic signed [23:0] dacData;
+
+  // Time in ps
+  realtime timeStart;
+  realtime timeEnd;
 
   i2s_if i2s ();
   spi_if spi ();
@@ -103,7 +113,7 @@ module tb_FIREngine ();
   // Configuration
   logic symCoeffs;
   logic [3:0] clockConfig;
-  logic signed [11:0] coeffs[NCoeff];
+  logic signed [DataWidth-1:0] coeffs[NCoeff];
   logic configData[1+4+(12*NCoeff)];
 
   // DUT signals
@@ -130,10 +140,9 @@ module tb_FIREngine ();
   endtask  // static
 
   task static ComputeFilterResponse(input logic [11:0] in, output logic [11:0] out);
-    static logic signed [11:0] filterSamples[NTaps] = '{NTaps{12'd0}};
-    logic signed [24:0] acc;
-
-    logic signed [12:0] outInt;
+    static logic signed [DataWidth-1:0] filterSamples[NTaps] = '{NTaps{DataWidth'(0)}};
+    logic signed [AccumulatorWidth-1:0] acc;
+    logic signed [DataWidth:0] outInt;
 
     begin
       filterSamples = {in, filterSamples[0:NTaps-2]};
@@ -148,17 +157,24 @@ module tb_FIREngine ();
       acc += coeffs[NCoeff-1] * filterSamples[NTaps/2];
 
       // Convert to output format
-      outInt = acc >>> 11;
-      if (outInt > signed'(13'h7ff)) begin
-        out = 12'h7ff;
-      end else if (outInt < signed'(12'h800)) begin
-        out = signed'(12'h800);
+      outInt = acc >>> (DataWidth - 1);
+      if (outInt > DataMax) begin
+        out = DataMax;
+      end else if (outInt < DataMin) begin
+        out = DataMin;
       end else begin
-        out = outInt[11:0];
+        out = outInt[DataWidth-1:0];
       end
     end
 
   endtask  // static
+
+  task static ResetCore();
+    reset = 1;
+    WaitClock(2);
+    reset = 0;
+    WaitClock(2);
+  endtask  //static
 
   // Generate 32MHz clock
   initial begin
@@ -179,20 +195,16 @@ module tb_FIREngine ();
     i2sModel = new(i2s.Slave);
     spiModel = new(spi.Master);
 
-    // Reset core
-    reset = 1;
-    WaitClock(3);
-    reset = 0;
-    WaitClock(2);
-
-    // Test configuration
+    /**
+     * Test configuration
+     */
     $display("Test configuration");
-    symCoeffs   = 1'b1;
-    clockConfig = $urandom();
-    for (int i = 0; i < NCoeff; i++) begin
-      coeffs[i] = $urandom() & 12'h7ff;
-    end
-    configData = {>>{{<<12{coeffs}}, symCoeffs, clockConfig}};
+    ResetCore();
+
+    symCoeffs = 1'b1;
+    std::randomize(clockConfig);
+    std::randomize(coeffs);
+    configData = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
     spiModel.SendData(configData);
 
     assert (clockConfig == dut.clockConfig)
@@ -203,11 +215,55 @@ module tb_FIREngine ();
         $error("coeff incorrect, at %d should be %h not %h", i, coeffs[i], dut.firInst.coeffs[i]);
     end
 
+    /**
+     * Test clock generation
+     */
+    $display("Test clock generation");
+    ResetCore();
+
+    // Set config to slowest
+    // MCLK 1MHz
+    // SCLK 250kHz
+    // LRCK 3906.25kHz
+    clockConfig = 4'd15;
+    configData  = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
+    spiModel.SendData(configData);
+
+    // Lock clock generator
+    @(posedge i2s.lrck);
+    @(posedge i2s.lrck);
+
+    @(posedge i2s.mclk);
+    timeStart = $realtime();
+    @(posedge i2s.mclk);
+    timeEnd = $realtime();
+    assert ((timeEnd - timeStart) == 1000000ps)
+    else $error("mclk period incorrect");
+
+    @(posedge i2s.sclk);
+    timeStart = $realtime();
+    @(posedge i2s.sclk);
+    timeEnd = $realtime();
+    assert ((timeEnd - timeStart) == 4000000ps)
+    else $error("sclk period incorrect");
+
+    @(posedge i2s.lrck);
+    timeStart = $realtime();
+    @(posedge i2s.lrck);
+    timeEnd = $realtime();
+    assert ((timeEnd - timeStart) == 256000000ps)
+    else $error("lrck period incorrect");
+
+    /**
+     * Test impulse response
+     */
     $display("Test impulse response");
-    symCoeffs = 1'b1;
+    ResetCore();
+
+    symCoeffs   = 1'b1;
     clockConfig = 4'd0;
-    dut.configStore.shiftReg = {symCoeffs, clockConfig};
-    dut.firInst.samples = '{NTaps{12'd0}};
+    configData  = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
+    spiModel.SendData(configData);
 
     adcData = 1'b1 << 22;
     i2sModel.SendAdc(adcData);
@@ -227,14 +283,22 @@ module tb_FIREngine ();
         );
     end
 
+    /**
+     * Test random data response
+     */
     $display("Test random data response");
-    adcData = $urandom();
+    ResetCore();
+
+    configData = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
+    spiModel.SendData(configData);
+
+    std::randomize(adcData);
     i2sModel.SendAdc(adcData);
     for (int i = 0; i < NTaps * 2; i++) begin
       fork
         begin
           ComputeFilterResponse(adcData >>> 12, expFilterOutput);
-          adcData = $urandom();
+          std::randomize(adcData);
           i2sModel.SendAdc(adcData);
         end
         begin
@@ -252,8 +316,7 @@ module tb_FIREngine ();
     for (int i = 0; i < NTaps + 1; i++) begin
       fork
         begin
-          ComputeFilterResponse(adcData >>> 12, expFilterOutput);
-          adcData = 0;
+          ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
           i2sModel.SendAdc(0);
         end
         begin
@@ -273,10 +336,15 @@ module tb_FIREngine ();
         );
     end
 
+    /**
+     * Test anti-symmetric impulse
+     */
     $display("Test anti-symmetric impulse");
-    symCoeffs = 1'b0;
-    dut.configStore.shiftReg = {symCoeffs, clockConfig};
-    dut.firInst.samples = '{NTaps{12'd0}};
+    ResetCore();
+
+    symCoeffs  = 1'b0;
+    configData = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
+    spiModel.SendData(configData);
 
     adcData = 1'b1 << 11;
     i2sModel.SendAdc(adcData);
@@ -287,7 +355,65 @@ module tb_FIREngine ();
       assert (dacData == {expFilterOutput, 12'b0})
       else
         $error(
-            "Anti-Sym, Impulse response incorrect, at %d should be %h not %h",
+            "Anti-symmetric, impulse response incorrect, at %d should be %h not %h",
+            i,
+            {
+              expFilterOutput, 12'b0
+            },
+            dacData
+        );
+    end
+
+    /**
+     * Test anti-symmetric random data response
+     */
+    $display("Test anti-symmetric random data response");
+    ResetCore();
+
+    configData = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
+    spiModel.SendData(configData);
+
+    std::randomize(adcData);
+    i2sModel.SendAdc(adcData);
+    for (int i = 0; i < NTaps * 2; i++) begin
+      fork
+        begin
+          ComputeFilterResponse(adcData >>> 12, expFilterOutput);
+          std::randomize(adcData);
+          i2sModel.SendAdc(adcData);
+        end
+        begin
+          i2sModel.ReadDac(dacData);
+        end
+      join
+
+      assert (dacData == {expFilterOutput, 12'b0})
+      else
+        $error(
+            "Anti-symmetric, response incorrect, at %d should be %h not %h",
+            i,
+            {
+              expFilterOutput, 12'b0
+            },
+            dacData
+        );
+    end
+
+    for (int i = 0; i < NTaps + 1; i++) begin
+      fork
+        begin
+          ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
+          i2sModel.SendAdc(0);
+        end
+        begin
+          i2sModel.ReadDac(dacData);
+        end
+      join
+
+      assert (dacData == {expFilterOutput, 12'b0})
+      else
+        $error(
+            "Anti-symmetric, fading response incorrect, at %d should be %h not %h",
             i,
             {
               expFilterOutput, 12'b0

@@ -90,12 +90,12 @@ module I2SController #(
         mclkCounter <= ClockConfigWidth'(0);
         mclk <= ~mclk;
       end else begin
-        mclkCounter <= mclkCounter + 1;
+        mclkCounter <= mclkCounter + ClockConfigWidth'(1);
       end
 
       if (mclkTransition && mclk) begin
         // Count on negedge of mclk
-        sclkCounter <= sclkCounter + 1;
+        sclkCounter <= sclkCounter + 1'd1;
         if (sclkTransition) begin
           sclk <= ~sclk;
         end
@@ -103,7 +103,7 @@ module I2SController #(
 
       if (sclkTransition && sclk) begin
         // Count on negedge of sclk
-        lrckCounter <= lrckCounter + 1;
+        lrckCounter <= lrckCounter + 5'd1;
         if (lrckTransition) begin
           lrck <= ~lrck;
         end
@@ -113,7 +113,7 @@ module I2SController #(
 
   always_ff @(posedge clk) begin : AdcSynchronizer
     if (reset) begin
-      adcSynchronizer <= 0;
+      adcSynchronizer <= 2'b0;
     end else begin
       adcSynchronizer <= {adcSynchronizer[0], adc};
     end
@@ -123,7 +123,7 @@ module I2SController #(
     if (reset) begin
       nextState = IDLE_S;
     end else begin
-      unique case (currentState)
+      case (currentState)
         IDLE_S: begin
           if (lrckTransition && !lrck) begin
             // positive edge of lrck
@@ -149,6 +149,10 @@ module I2SController #(
             nextState = SHIFT_S;
           end
         end
+
+        default: begin
+          nextState = IDLE_S;
+        end
       endcase
     end
   end
@@ -159,15 +163,15 @@ module I2SController #(
 
   always_ff @(posedge clk) begin : AdcExecution
     if (reset) begin
-      adcData <= 0;
+      adcData <= DataWidth'(0);
     end else begin
-      unique case (currentState)
+      case (currentState)
         IDLE_S: begin
-          adcDataValid <= 0;
+          adcDataValid <= 1'b0;
         end
 
         CLEAR_S: begin
-          adcData <= 0;
+          adcData <= DataWidth'(0);
         end
 
         SHIFT_S: begin
@@ -176,8 +180,11 @@ module I2SController #(
           end
 
           if (nextState == IDLE_S) begin
-            adcDataValid <= 1;
+            adcDataValid <= 1'b1;
           end
+        end
+
+        default: begin
         end
       endcase
     end
@@ -185,7 +192,7 @@ module I2SController #(
 
   always_ff @(posedge clk) begin : DacExecution
     if (reset) begin
-      dac <= 0;
+      dac <= 1'b0;
     end else begin
       case (currentState)
         IDLE_S: begin
@@ -211,7 +218,7 @@ module I2SController #(
 
   always_ff @(posedge clk) begin : DacDataUpdate
     if (reset) begin
-      dacDataQ <= 0;
+      dacDataQ <= DataWidth'(0);
     end else begin
       if (dacDataValid && currentState != SHIFT_S) begin
         dacDataQ <= dacData;

@@ -52,7 +52,7 @@ module fir #(
   // When a new sample is shifted in, the entire LSFR advances.
   // During the MAC operation, the LSFR is split in half, and advances in opposite directions.
   // This allows the MAC process to just select from the LSB and MSB of the entire lsfr
-  logic [DataWidth-1:0] samples[NTaps];
+  logic signed [DataWidth-1:0] samples[NTaps];
   always_ff @(posedge clk) begin
     if (rst) begin
       // reset
@@ -167,11 +167,11 @@ module fir #(
 
     // MUX
     case (sel)
-      2'b00:   mux_out = 'd0;
+      2'b00:   mux_out = 2'd0;
       2'b01:   mux_out = AccumulatorWidth'(coeffs[0] << bit_cnt);
       2'b10:   mux_out = AccumulatorWidth'(coeffs[0] << (bit_cnt + 1));
       2'b11:   mux_out = AccumulatorWidth'(-(coeffs[0] << bit_cnt));
-      default: mux_out = 'd0;
+      default: mux_out = 2'b0;
     endcase
 
     if (bit_cnt == 11) begin
@@ -259,6 +259,7 @@ module fir #(
       end
 
       default: begin
+        n_state = IDLE;
       end
     endcase
   end
