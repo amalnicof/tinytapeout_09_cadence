@@ -10,7 +10,7 @@
 
 module SPISlave (
     input wire clk,
-    input wire reset,
+    input wire resetN,
 
     // Shift register port
     output logic serialOut,
@@ -33,7 +33,7 @@ module SPISlave (
   wire cs = csSynchronizer[1];
 
   always_ff @(posedge clk) begin : Synchronizers
-    if (reset) begin
+    if (!resetN) begin
       sclkSynchronizer <= 0;
       mosiSynchronizer <= 0;
       csSynchronizer   <= 0;

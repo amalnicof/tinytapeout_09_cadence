@@ -28,7 +28,7 @@ module I2SController #(
 
 ) (
     input wire clk,
-    input wire reset,
+    input wire resetN,
 
     input wire [ClockConfigWidth-1:0] clockConfig,
 
@@ -78,7 +78,7 @@ module I2SController #(
 
   // Generate clocks and pulses
   always_ff @(posedge clk) begin : ClockGeneration
-    if (reset) begin
+    if (!resetN) begin
       mclk <= 1'b0;
       sclk <= 1'b0;
       lrck <= 1'b0;
@@ -112,7 +112,7 @@ module I2SController #(
   end
 
   always_ff @(posedge clk) begin : AdcSynchronizer
-    if (reset) begin
+    if (!resetN) begin
       adcSynchronizer <= 2'b0;
     end else begin
       adcSynchronizer <= {adcSynchronizer[0], adc};
@@ -120,7 +120,7 @@ module I2SController #(
   end
 
   always_comb begin : NextStateCompute
-    if (reset) begin
+    if (!resetN) begin
       nextState = IDLE_S;
     end else begin
       case (currentState)
@@ -162,7 +162,7 @@ module I2SController #(
   end
 
   always_ff @(posedge clk) begin : AdcExecution
-    if (reset) begin
+    if (!resetN) begin
       adcData <= DataWidth'(0);
     end else begin
       case (currentState)
@@ -191,7 +191,7 @@ module I2SController #(
   end
 
   always_ff @(posedge clk) begin : DacExecution
-    if (reset) begin
+    if (!resetN) begin
       dac <= 1'b0;
     end else begin
       case (currentState)
@@ -217,7 +217,7 @@ module I2SController #(
   end
 
   always_ff @(posedge clk) begin : DacDataUpdate
-    if (reset) begin
+    if (!resetN) begin
       dacDataQ <= DataWidth'(0);
     end else begin
       if (dacDataValid && currentState != SHIFT_S) begin

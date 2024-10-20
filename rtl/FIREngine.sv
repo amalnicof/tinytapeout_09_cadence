@@ -13,7 +13,7 @@ module FIREngine #(
     localparam integer DataWidth = 12
 ) (
     input wire clk,
-    input wire reset,
+    input wire resetN,
 
     // I2S2 Port
     output wire mclk,
@@ -49,7 +49,7 @@ module FIREngine #(
       .DataWidth(DataWidth)
   ) i2sController (
       .clk(clk),
-      .reset(reset),
+      .resetN(resetN),
       .clockConfig(clockConfig),
       .adcData(adcData),
       .adcDataValid(adcDataValid),
@@ -67,7 +67,7 @@ module FIREngine #(
       .NTaps(NTaps)
   ) firInst (
       .clk(clk),
-      .rst(reset),
+      .rstN(resetN),
       .start(adcDataValid),
       .lock(!cs),  // Lock when spi is writing data
       .done(firDataValid),
@@ -80,7 +80,7 @@ module FIREngine #(
 
   SPISlave spiSlave (
       .clk(clk),
-      .reset(reset),
+      .resetN(resetN),
       .serialOut(serial),
       .serialEn(serialEn),
       .rawSCLK(spiClk),
@@ -92,7 +92,7 @@ module FIREngine #(
       .ClockConfigWidth(ClockConfigWidth)
   ) configStore (
       .clk(clk),
-      .reset(reset),
+      .resetN(resetN),
       .serialEn(serialEn),
       .serialIn(serial),
       .serialOut(serialFir),

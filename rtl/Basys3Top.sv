@@ -24,7 +24,7 @@ module Basys3Top (
     input wire spiClk
 );
   wire clk;
-  wire reset;
+  wire resetN;
 
   wire mclk;
   wire sclk;
@@ -39,7 +39,7 @@ module Basys3Top (
 
   FIREngine firEngine (
       .clk(clk),
-      .reset(reset),
+      .resetN(resetN),
       .mclk(mclk),
       .sclk(sclk),
       .lrck(lrck),
@@ -60,8 +60,8 @@ module Basys3Top (
       .probe5(lrck),
       .probe6(firEngine.adcDataValid),
       .probe7(firEngine.clockConfig),
-      .probe8 (spiClk),
-      .probe9 (mosi),
+      .probe8(spiClk),
+      .probe9(mosi),
       .probe10(cs),
       .probe11(firEngine.serialEn),
       .probe12(firEngine.serial),
@@ -73,7 +73,7 @@ module Basys3Top (
       .probe18(firEngine.firData)
   );
 
-  assign reset   = !locked;
+  assign resetN  = locked;
 
   assign dacMCLK = mclk;
   assign dacLRCK = lrck;

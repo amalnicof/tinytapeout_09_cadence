@@ -16,7 +16,7 @@ module ConfigStore #(
     localparam integer ShiftRegSize = ClockConfigWidth + SymCoeffsWidth
 ) (
     input wire clk,
-    input wire reset,
+    input wire resetN,
 
     // Shift register port
     input  wire serialEn,
@@ -33,7 +33,7 @@ module ConfigStore #(
   assign serialOut = shiftReg[ShiftRegSize-1];
 
   always @(posedge clk) begin
-    if (reset) begin
+    if (!resetN) begin
       shiftReg <= {DefaultSymCoeffs, DefaultClockConfig};
     end else if (serialEn) begin
       shiftReg <= {shiftReg[ShiftRegSize-2:0], serialIn};

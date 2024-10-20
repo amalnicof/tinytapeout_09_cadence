@@ -118,13 +118,13 @@ module tb_FIREngine ();
 
   // DUT signals
   logic clk;
-  logic reset;
+  logic resetN;
 
   FIREngine #(
       .NTaps(NTaps)
   ) dut (
       .clk(clk),
-      .reset(reset),
+      .resetN(resetN),
       .mclk(i2s.mclk),
       .sclk(i2s.sclk),
       .lrck(i2s.lrck),
@@ -170,9 +170,9 @@ module tb_FIREngine ();
   endtask  // static
 
   task static ResetCore();
-    reset = 1;
+    resetN = 0;
     WaitClock(2);
-    reset = 0;
+    resetN = 1;
     WaitClock(2);
   endtask  //static
 

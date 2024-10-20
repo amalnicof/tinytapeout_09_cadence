@@ -24,7 +24,7 @@ module fir #(
 
 ) (
     input wire clk,
-    input wire rst,
+    input wire rstN,
     input wire start,
     input wire lock,  // lock signal to stop coefficient shifting
     output logic done,  // Done pulse when output data is valid
@@ -54,7 +54,7 @@ module fir #(
   // This allows the MAC process to just select from the LSB and MSB of the entire lsfr
   logic signed [DataWidth-1:0] samples[NTaps];
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (!rstN) begin
       // reset
       samples <= '{NTaps{DataWidth'(0)}};
     end else begin
@@ -86,7 +86,7 @@ module fir #(
   // During the MAC operation, it shifts by DataWidth downwards
   logic signed [DataWidth-1:0] coeffs[NCoeffs];
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (!rstN) begin
       // reset
       coeffs <= '{NCoeffs{DataWidth'(0)}};
     end else begin
@@ -115,7 +115,7 @@ module fir #(
 
   // sample counter
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (!rstN) begin
       sample_cnt <= 'd0;
     end else begin
       if (sample_cnt_en) begin
@@ -129,7 +129,7 @@ module fir #(
   // bit counter
   reg [BITS_CNT_BITS-1:0] bit_cnt;
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (!rstN) begin
       bit_cnt <= 'd0;
     end else begin
       if ((bit_cnt_en == 1'b1) && (bit_cnt < DataWidth - 1)) begin
@@ -184,7 +184,7 @@ module fir #(
 
   // accumulator register
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (!rstN) begin
       accQ <= 'd0;
     end else begin
       if (start) begin
@@ -221,7 +221,7 @@ module fir #(
   state_e n_state, state;
   // transition states
   always_ff @(posedge clk) begin
-    if (rst) begin
+    if (!rstN) begin
       state <= IDLE;
     end else begin
       state <= n_state;
