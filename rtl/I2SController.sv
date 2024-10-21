@@ -83,8 +83,8 @@ module I2SController #(
       sclk <= 1'b0;
       lrck <= 1'b0;
       mclkCounter <= ClockConfigWidth'(0);
-      sclkCounter <= 2'b0;
-      lrckCounter <= 6'b0;
+      sclkCounter <= 1'b0;
+      lrckCounter <= 5'b0;
     end else begin
       if (mclkTransition) begin
         mclkCounter <= ClockConfigWidth'(0);
@@ -143,7 +143,7 @@ module I2SController #(
         end
 
         SHIFT_S: begin
-          if (lrckCounter == SerialDataWidth + 1) begin
+          if (lrckCounter == 5'(SerialDataWidth + 1)) begin
             nextState = IDLE_S;
           end else begin
             nextState = SHIFT_S;
@@ -175,7 +175,7 @@ module I2SController #(
         end
 
         SHIFT_S: begin
-          if (samplePulse && lrckCounter <= SerialDataWidth - DataWidth) begin
+          if (samplePulse && lrckCounter <= 5'(SerialDataWidth - DataWidth)) begin
             adcData <= {adcData[DataWidth-2:0], adcQ};
           end
 
@@ -204,8 +204,8 @@ module I2SController #(
 
         SHIFT_S: begin
           if (dacTransition) begin
-            if (lrckCounter < DataWidth) begin
-              dac <= dacDataQ[DataWidth-lrckCounter-1];
+            if (lrckCounter < 5'(DataWidth)) begin
+              dac <= dacDataQ[5'(DataWidth)-lrckCounter-1];
             end else begin
               dac <= 1'b0;
             end

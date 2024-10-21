@@ -7,7 +7,6 @@
  * Input and output samples are unsigned integers of size DataWidth.
  */
 
-
 `timescale 1ns / 1ps
 
 module fir #(
@@ -36,7 +35,7 @@ module fir #(
 );
   generate
     if (NTaps % 2 == 0) begin : g_ParameterVerification_NTaps
-      $fatal("NTaps must be odd.");
+      ParameterVerificationFailure nTaps_must_be_odd ();
     end
   endgenerate
 
@@ -56,25 +55,32 @@ module fir #(
   always_ff @(posedge clk) begin
     if (!rstN) begin
       // reset
-      samples <= '{NTaps{DataWidth'(0)}};
+      for (integer i = 0; i < NTaps; i++) begin
+        samples[i] <= DataWidth'(0);
+      end
     end else begin
       // shifting
       if (start) begin
         // Shift in new sample
-        samples <= {x, samples[0:NTaps-2]};
+        samples[0] <= x;
+        for (integer i = 0; i < NTaps - 1; i++) begin
+          samples[i+1] <= samples[i];
+        end
       end else if (sft && sample_cnt != (NTaps / 2)) begin
         // Split the LSFR in 2
         // x1 x2 x3 x4 | x5 | x6 x7 x8 x9
         // x2 x3 x4 x1 | x5 | x9 x6 x7 x8
         // x3 x4 x1 x2 | x5 | x8 x9 x6 x7
         // ...
-        samples <= {
-          samples[1:(NTaps/2)-1],
-          samples[0],
-          samples[NTaps/2],
-          samples[NTaps-1],
-          samples[(NTaps>>1)+1:NTaps-2]
-        };
+        for (integer i = 0; i < (NTaps / 2) - 1; i++) begin
+          samples[i] <= samples[i+1];
+        end
+        samples[(NTaps/2)-1] <= samples[0];
+
+        for (integer i = (NTaps / 2) + 1; i < NTaps - 1; i++) begin
+          samples[i+1] <= samples[i];
+        end
+        samples[(NTaps/2)+1] <= samples[NTaps-1];
       end
     end
   end
@@ -88,7 +94,9 @@ module fir #(
   always_ff @(posedge clk) begin
     if (!rstN) begin
       // reset
-      coeffs <= '{NCoeffs{DataWidth'(0)}};
+      for (integer i = 0; i < NCoeffs; i++) begin
+        coeffs[i] <= DataWidth'(0);
+      end
     end else begin
       // shifting
       if (coeff_load_in) begin
@@ -108,7 +116,10 @@ module fir #(
           coeffs[NCoeffs-1][f+1] <= coeffs[NCoeffs-1][f];
         end
       end else if (sft && !lock) begin
-        coeffs <= {coeffs[1:NCoeffs-1], coeffs[0]};
+        coeffs[NCoeffs-1] <= coeffs[0];
+        for (integer i = 0; i < NCoeffs - 1; i++) begin
+          coeffs[i] <= coeffs[i+1];
+        end
       end
     end
   end
@@ -196,17 +207,17 @@ module fir #(
   end
 
   // Output value
-  logic signed [DataWidth:0] yInt;
+  wire signed [  DataWidth:0] yInt = accQ >>> (DataWidth - 1);
+  wire signed [DataWidth-1:0] yIntPart = yInt[DataWidth-1:0];
   always_comb begin
     // Remove fractional bits
     // truncate to DataWidth, saturating
-    yInt = accQ >>> (DataWidth - 1);
     if (yInt > DataMax) begin
       y = DataMax;
     end else if (yInt < DataMin) begin
       y = DataMin;
     end else begin
-      y = yInt[DataWidth-1:0];
+      y = yIntPart;
     end
   end
 

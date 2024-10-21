@@ -346,7 +346,7 @@ module tb_FIREngine ();
     configData = {>>{{<<DataWidth{coeffs}}, symCoeffs, clockConfig}};
     spiModel.SendData(configData);
 
-    adcData = 1'b1 << 11;
+    adcData = 1'b1 << 22;
     i2sModel.SendAdc(adcData);
     for (int i = 0; i < NTaps + 1; i++) begin
       ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
