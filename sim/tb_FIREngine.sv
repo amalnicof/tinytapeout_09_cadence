@@ -146,7 +146,7 @@ module tb_FIREngine ();
                                     output logic [DataWidth-1:0] out);
     static logic signed [DataWidth-1:0] filterSamples[NTaps] = '{NTaps{DataWidth'(0)}};
     logic signed [AccumulatorWidth-1:0] acc;
-    logic signed [DataWidth:0] outInt;
+    logic signed [DataWidth+1:0] outInt;
 
     begin
       filterSamples = {in, filterSamples[0:NTaps-2]};
