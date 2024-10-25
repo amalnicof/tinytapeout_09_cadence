@@ -185,7 +185,7 @@ module fir #(
       default: mux_out = 2'b0;
     endcase
 
-    if (bit_cnt == 11) begin
+    if (bit_cnt == DataWidth - 1) begin
       // Sign should be subtraction
       acc_in = accQ - mux_out;
     end else begin

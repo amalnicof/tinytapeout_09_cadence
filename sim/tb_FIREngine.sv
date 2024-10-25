@@ -90,7 +90,9 @@ endclass
 module tb_FIREngine ();
   localparam integer NTaps = 9;
   localparam integer NCoeff = (NTaps + 1) / 2;
-  localparam integer DataWidth = 12;
+  localparam integer DataWidth = 8;
+
+  localparam integer DownSampleShift = 24 - DataWidth;
 
   // int + extra int bit + frac bits + sign
   localparam integer AccumulatorWidth = DataWidth + 1 + DataWidth - 1 + 1;
@@ -114,14 +116,15 @@ module tb_FIREngine ();
   logic symCoeffs;
   logic [3:0] clockConfig;
   logic signed [DataWidth-1:0] coeffs[NCoeff];
-  logic configData[1+4+(12*NCoeff)];
+  logic configData[1+4+(DataWidth*NCoeff)];
 
   // DUT signals
   logic clk;
   logic resetN;
 
   FIREngine #(
-      .NTaps(NTaps)
+      .NTaps(NTaps),
+      .DataWidth(DataWidth)
   ) dut (
       .clk(clk),
       .resetN(resetN),
@@ -139,7 +142,8 @@ module tb_FIREngine ();
     repeat (cycles) @(posedge clk);
   endtask  // static
 
-  task static ComputeFilterResponse(input logic [11:0] in, output logic [11:0] out);
+  task static ComputeFilterResponse(input logic [DataWidth-1:0] in,
+                                    output logic [DataWidth-1:0] out);
     static logic signed [DataWidth-1:0] filterSamples[NTaps] = '{NTaps{DataWidth'(0)}};
     logic signed [AccumulatorWidth-1:0] acc;
     logic signed [DataWidth:0] outInt;
@@ -268,16 +272,16 @@ module tb_FIREngine ();
     adcData = 1'b1 << 22;
     i2sModel.SendAdc(adcData);
     for (int i = 0; i < NTaps + 1; i++) begin
-      ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
+      ComputeFilterResponse(i == 0 ? adcData >>> DownSampleShift : 0, expFilterOutput);
       i2sModel.ReadDac(dacData);
 
-      assert (dacData == {expFilterOutput, 12'b0})
+      assert (dacData == {expFilterOutput, DownSampleShift'(0)})
       else
         $error(
             "Impulse response incorrect, at %d should be %h not %h",
             i,
             {
-              expFilterOutput, 12'b0
+              expFilterOutput, DownSampleShift'(0)
             },
             dacData
         );
@@ -297,7 +301,7 @@ module tb_FIREngine ();
     for (int i = 0; i < NTaps * 2; i++) begin
       fork
         begin
-          ComputeFilterResponse(adcData >>> 12, expFilterOutput);
+          ComputeFilterResponse(adcData >>> DownSampleShift, expFilterOutput);
           std::randomize(adcData);
           i2sModel.SendAdc(adcData);
         end
@@ -306,17 +310,22 @@ module tb_FIREngine ();
         end
       join
 
-      assert (dacData == {expFilterOutput, 12'b0})
+      assert (dacData == {expFilterOutput, DownSampleShift'(0)})
       else
         $error(
-            "Response incorrect, at %d should be %h not %h", i, {expFilterOutput, 12'b0}, dacData
+            "Response incorrect, at %d should be %h not %h",
+            i,
+            {
+              expFilterOutput, DownSampleShift'(0)
+            },
+            dacData
         );
     end
 
     for (int i = 0; i < NTaps + 1; i++) begin
       fork
         begin
-          ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
+          ComputeFilterResponse(i == 0 ? adcData >>> DownSampleShift : 0, expFilterOutput);
           i2sModel.SendAdc(0);
         end
         begin
@@ -324,13 +333,13 @@ module tb_FIREngine ();
         end
       join
 
-      assert (dacData == {expFilterOutput, 12'b0})
+      assert (dacData == {expFilterOutput, DownSampleShift'(0)})
       else
         $error(
             "Fading response incorrect, at %d should be %h not %h",
             i,
             {
-              expFilterOutput, 12'b0
+              expFilterOutput, DownSampleShift'(0)
             },
             dacData
         );
@@ -349,16 +358,16 @@ module tb_FIREngine ();
     adcData = 1'b1 << 22;
     i2sModel.SendAdc(adcData);
     for (int i = 0; i < NTaps + 1; i++) begin
-      ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
+      ComputeFilterResponse(i == 0 ? adcData >>> DownSampleShift : 0, expFilterOutput);
       i2sModel.ReadDac(dacData);
 
-      assert (dacData == {expFilterOutput, 12'b0})
+      assert (dacData == {expFilterOutput, DownSampleShift'(0)})
       else
         $error(
             "Anti-symmetric, impulse response incorrect, at %d should be %h not %h",
             i,
             {
-              expFilterOutput, 12'b0
+              expFilterOutput, DownSampleShift'(0)
             },
             dacData
         );
@@ -378,7 +387,7 @@ module tb_FIREngine ();
     for (int i = 0; i < NTaps * 2; i++) begin
       fork
         begin
-          ComputeFilterResponse(adcData >>> 12, expFilterOutput);
+          ComputeFilterResponse(adcData >>> DownSampleShift, expFilterOutput);
           std::randomize(adcData);
           i2sModel.SendAdc(adcData);
         end
@@ -387,13 +396,13 @@ module tb_FIREngine ();
         end
       join
 
-      assert (dacData == {expFilterOutput, 12'b0})
+      assert (dacData == {expFilterOutput, DownSampleShift'(0)})
       else
         $error(
             "Anti-symmetric, response incorrect, at %d should be %h not %h",
             i,
             {
-              expFilterOutput, 12'b0
+              expFilterOutput, DownSampleShift'(0)
             },
             dacData
         );
@@ -402,7 +411,7 @@ module tb_FIREngine ();
     for (int i = 0; i < NTaps + 1; i++) begin
       fork
         begin
-          ComputeFilterResponse(i == 0 ? adcData >>> 12 : 0, expFilterOutput);
+          ComputeFilterResponse(i == 0 ? adcData >>> DownSampleShift : 0, expFilterOutput);
           i2sModel.SendAdc(0);
         end
         begin
@@ -410,13 +419,13 @@ module tb_FIREngine ();
         end
       join
 
-      assert (dacData == {expFilterOutput, 12'b0})
+      assert (dacData == {expFilterOutput, DownSampleShift'(0)})
       else
         $error(
             "Anti-symmetric, fading response incorrect, at %d should be %h not %h",
             i,
             {
-              expFilterOutput, 12'b0
+              expFilterOutput, DownSampleShift'(0)
             },
             dacData
         );
