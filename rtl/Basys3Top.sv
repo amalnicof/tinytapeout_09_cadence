@@ -38,8 +38,8 @@ module Basys3Top (
   );
 
   FIREngine #(
-      .NTaps(9),
-      .DataWidth(12)
+      .NTaps(13),
+      .DataWidth(8)
   ) firEngine (
       .clk(clk),
       .resetN(resetN),

@@ -12,7 +12,7 @@ class FixedPointKwargs(TypedDict):
 
 
 CLOCK_CONFIG_WIDTH = 4
-COEFF_WIDTH = 12
+COEFF_WIDTH = 8
 SYM_COEFFS_WIDTH = 1
 
 COEFF_CONFIG: FixedPointKwargs = {
@@ -22,26 +22,32 @@ COEFF_CONFIG: FixedPointKwargs = {
     "rounding": "convergent",
 }
 
-HIGH_PASS_COEFFS = (  # CutoffFreq=3000
-    int(FixedPoint(0.0049, **COEFF_CONFIG).bits),
-    int(FixedPoint(-0.0028, **COEFF_CONFIG).bits),
-    int(FixedPoint(-0.0774, **COEFF_CONFIG).bits),
-    int(FixedPoint(-0.2314, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.6766, **COEFF_CONFIG).bits),
-)
 LOW_PASS_COEFFS = (  # CutoffFreq=100
-    int(FixedPoint(0.0182, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.0488, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.1227, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.1967, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.2273, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0122, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0216, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0472, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0823, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.1174, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.1431, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.1525, **COEFF_CONFIG).bits),
 )
-BAND_PASS_COEFFS = (  # CutoffFreq=[1000,1500]
-    int(FixedPoint(-0.0032, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.0217, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.1213, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.2669, **COEFF_CONFIG).bits),
-    int(FixedPoint(0.3382, **COEFF_CONFIG).bits),
+BAND_PASS_COEFFS = (  # CutoffFreq=[1000,1100]
+    int(FixedPoint(0.0094, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0188, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0451, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.0843, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.1260, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.1579, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.1698, **COEFF_CONFIG).bits),
+)
+HIGH_PASS_COEFFS = (  # CutoffFreq=3000
+    int(FixedPoint(-0.0031, **COEFF_CONFIG).bits),
+    int(FixedPoint(-0.0085, **COEFF_CONFIG).bits),
+    int(FixedPoint(-0.0247, **COEFF_CONFIG).bits),
+    int(FixedPoint(-0.0526, **COEFF_CONFIG).bits),
+    int(FixedPoint(-0.0857, **COEFF_CONFIG).bits),
+    int(FixedPoint(-0.1128, **COEFF_CONFIG).bits),
+    int(FixedPoint(0.8794, **COEFF_CONFIG).bits),
 )
 
 PASSTHROUGH_COEFFS = (0, 0, 0, 0, (1 << (COEFF_WIDTH - 1)) - 1)
