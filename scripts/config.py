@@ -18,7 +18,7 @@ SYM_COEFFS_WIDTH = 1
 COEFF_CONFIG: FixedPointKwargs = {
     "signed": True,
     "m": 1,
-    "n": 11,
+    "n": COEFF_WIDTH - 1,
     "rounding": "convergent",
 }
 
@@ -44,7 +44,7 @@ BAND_PASS_COEFFS = (  # CutoffFreq=[1000,1500]
     int(FixedPoint(0.3382, **COEFF_CONFIG).bits),
 )
 
-PASSTHROUGH_COEFFS = (0, 0, 0, 0, 0x7FF)
+PASSTHROUGH_COEFFS = (0, 0, 0, 0, (1 << (COEFF_WIDTH - 1)) - 1)
 
 COEFFS = PASSTHROUGH_COEFFS
 # COEFFS = LOW_PASS_COEFFS

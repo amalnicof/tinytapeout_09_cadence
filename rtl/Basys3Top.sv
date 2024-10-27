@@ -37,7 +37,10 @@ module Basys3Top (
       .rawClk(rawClk)
   );
 
-  FIREngine firEngine (
+  FIREngine #(
+      .NTaps(9),
+      .DataWidth(12)
+  ) firEngine (
       .clk(clk),
       .resetN(resetN),
       .mclk(mclk),
